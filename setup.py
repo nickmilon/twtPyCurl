@@ -6,7 +6,8 @@ see: https://docs.python.org/2/distutils/setupscript.html
 from setuptools import setup, find_packages
 version = '0.1.1'
 
-# work around since dependency_links seems don't work with newer versions of pip
+# work around since dependency_links seems don't work with newer versions of pip,
+# needs to uninstall it manually on uninstall
 import pip
 pip.main(['install', "git+https://github.com/nickmilon/Hellas.git@master"])
 # @TODO remove above when we upload Hellas to PyPi
@@ -15,7 +16,8 @@ print('installing packages:{!s}'.format(find_packages()))
 
 setup(
     packages=find_packages(),
-    package_data={'twtPyCurl': ['data/*.*']},
+    package_data={'twtPyCurl': ['data/*.json', 'data/*txt']},
+
     name="twtPyCurl",
     version=version,
     author="nickmilon",
