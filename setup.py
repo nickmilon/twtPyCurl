@@ -16,7 +16,7 @@ print('installing packages:{!s}'.format(find_packages()))
 
 setup(
     packages=find_packages(),
-    package_data={'twtPyCurl': ['data/*.json', 'data/*txt']},
+    package_data={'twtPyCurl': ['../data/*.json', '../data/*txt']},
 
     name="twtPyCurl",
     version=version,
