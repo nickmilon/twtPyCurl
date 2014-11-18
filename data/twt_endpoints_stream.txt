@@ -1,0 +1,5 @@
+POST stream/statuses/filter
+GET stream/statuses/sample
+GET stream/statuses/firehose
+GET userstream/user
+GET sitestream/site
