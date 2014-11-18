@@ -5,7 +5,7 @@ __author__ = "nickmilon"
 from os import path
 from sys import version_info
 _PATH_ROOT = path.abspath(path.dirname(__file__))
-_PATH_TO_DATA = path.abspath(path.dirname(_PATH_ROOT))+"/data/"
+_PATH_TO_DATA = path.abspath(path.dirname(_PATH_ROOT))+"/twt_data/"
 
 
 _PY_VERSION = version_info
