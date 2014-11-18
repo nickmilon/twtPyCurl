@@ -16,7 +16,7 @@ version = '0.1.1'
 
 setup(
     packages=find_packages(),
-    package_data={'twtPyCurl': ['/data/*']},
+    package_data={'twtPyCurl': ['../data/*.*']},
 
     name="twtPyCurl",
     version=version,
