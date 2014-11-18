@@ -44,6 +44,7 @@ setup(
     install_requires=[
         'oauthlib',
         'simplejson',
-        'pycurl'
+        'pycurl',
+        'Hellas'
     ],
 )
