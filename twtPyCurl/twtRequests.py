@@ -4,21 +4,35 @@ Created on July 30, 2014
 '''
 
 
-from Hellas.Sparta import DotDot
+from Hellas.Sparta import DotDot, FMT_DT_GENERIC
 from Hellas.Pella import file_to_base64
 from twtPyCurl.constants import TWT_URL_MEDIA_UPLOAD, TWT_URL_API_REST, TWT_URL_API_STREAM
 
-from twtPyCurl.helpers.pcRequests import simplejson, pycurl, Client, ClientStream, Credentials,\
+from twtPyCurl.helpers.requests import simplejson, pycurl, Client, ClientStream, Credentials,\
     CredentialsProviderFile, ErrorRq, ErrorRqCurl, ErrorRqHttp
 from time import sleep
-
 from twtPyCurl.twt_endpoints import EndPointsRest, EndPointsStream
+import logging
 
-TEMP_CREDENTIALS = CredentialsProviderFile()()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(asctime)s %(funcName)s(%(lineno)d) -- %(message)s',
+    datefmt=FMT_DT_GENERIC)
+
+log = logging.getLogger(__name__)
+log.info("loading module")
+
+TEMP_CREDENTIALS = CredentialsProviderFile()()  # @TODO delete this for production
 
 
 def backoff(seconds):  # default backoff method
     return sleep(seconds)
+
+
+class ErrorTwtStreamDisconnectReq(ErrorRq):
+    def __init__(self, error_number, msg):
+        log.error(msg)
+        super(ErrorTwtStreamDisconnectReq, self).__init__(locals())
 
 
 class ErrorTwtMissingParameters(ErrorRq):
@@ -85,42 +99,68 @@ class ClientTwtRest(Client):
 
 
 class ClientTwtStream(ClientStream):
-    abort_reasons = DotDot
-    abort_reasons.srv_r_rc = (10, 'server requested to reconnect ')
-
+    """ disconnect can be initiated by a meesage to disconnect from twitter
+        or by program by setting request_abort property to a tuple (code,message)
+    """
     def __init__(self, credentials=None,
                  stats_every=1000,  # 0 or None to disable stats
                  **kwargs):
         self._reset_retry()
         self._endpoints = EndPointsStream(parent=self)  # composition with endpoints object
         super(ClientTwtStream, self).__init__(credentials, stats_every=stats_every, **kwargs)
-        # delegate to endpoints could be done automatically but that would be too tricky
+        # delegate to endpoints could be done automatically but that would be too hackish
         self.stream = self._endpoints.stream
         self.sitestream = self._endpoints.sitestream
         self.userstream = self._endpoints.userstream
 
-    def on_request_error_curl(self, err, state):
+    def on_request_error_curl(self, err):
         """ default error handling, for curl (connection) Errors override method for any special handling
             see error codes http://curl.haxx.se/libcurl/c/libcurl-errors.html
             #(E_COULDNT_CONNECT= 7)
             return True to retry request
             raise an exception or return False to abort
-            return None to let caller handle it
         """
-
-        if err[0] == pycurl.E_PARTIAL_FILE:
+        if err[0] == pycurl.E_PARTIAL_FILE and self._state.retries_curl < 4:
             # err  (18, 'transfer closed with outstanding read data remaining')
-            # usually happens in streams due to network or server temporary failure
+            # usually happens in streams due to network/server temporary failure
             # possible remedy curl_setopt($curl, CURLOPT_HTTPHEADER, array('Expect:'))?
-            if self.wait_on_nw_error(state.tries) is not False:
+            if self.wait_on_nw_error(self._state.retries_curl) is not False:
+                self._log_retry("pycurl", err[0], err[1], self._state.retries_curl)
                 return True
-        elif err[0] == pycurl.E_WRITE_ERROR and self.request_abort:  # 23
-            if self.request_abort == self.abort_reasons.srv_r_rc:
-                if self.wait_on_nw_error(state.tries) is not False:
-                    return True
-            else:
-                return False
+        elif err[0] == pycurl.E_WRITE_ERROR and self._request_abort[0] is not None:
+            code, msg = self.request_abort[1:]
+            if code <= 12:  # https://dev.twitter.com/streaming/overview/messages-types
+                if code in [2, 4, 7]:               # danger dublicate stream or something
+                    raise ErrorTwtStreamDisconnectReq(code, msg)
+                elif code in [1, 10, 11, 12]:        # twitter mulfunction
+                    if self.wait_on_nw_error(self._state.retries_curl) is not False:
+                        # try to reconnect
+                        self._log_retry("twt_disconnect_req", code, msg, self._state.retries_curl)
+                        return True
+                    else:
+                        raise ErrorTwtStreamDisconnectReq(code + 100, "couldn't revover: " + msg)
+                else:
+                    raise ErrorTwtStreamDisconnectReq(code, "we don't handle:" + msg)
+            elif code == 1001:    # by convention > 1000 comes from our side
+                    return False  # disconnect gracefully
+            raise ErrorTwtStreamDisconnectReq(code, "we don't handle:" + msg)
+        # @TODO handle user streams etc
         raise ErrorRqCurl(err[0], err[1])
+
+    def on_request_error_http(self, err):
+        """ default error handling, for HTTP Errors override method for any special handling
+            return True to retry request
+            raise an exception or return False to abort
+        """
+        if err in [500, 502, 503, 504] and self._state.retries_http < 4:
+            if self.wait_on_http_error(self._state.retries_http):
+                self._log_retry("http", err, "", self._state.retries_http)
+                return True
+        raise ErrorRqHttp(err, self.response)
+
+    def _log_retry(self, error_type, err_num, err_msg, cur_try):
+        frmt = 'auto recovering {error_type} error num= {err_num!s} {err_msg}, retries{cur_try:2d}'
+        log.warning(frmt.format(**locals()))
 
     @classmethod
     def wait_seconds(cls, try_cnt, initial, maximum, tries_max=5, exponential=False):
@@ -156,10 +196,11 @@ class ClientTwtStream(ClientStream):
         """
         jdata = simplejson.loads(data)
         if self._last_req.subdomain == 'stream':  # it is a statuses stream
-            if jdata.get('source'):               # it is a status (all statuses have source)
+            if jdata.get('source') is not None:
+                # it is a status (all statuses have source sometimes can be '')
                 self.on_twitter_data(jdata)
             else:
-                self.on_twitter_msg(jdata)        # then it is message
+                self.on_twitter_msg_base(jdata)        # then it is message
         else:
             pass
         # print(jdata.get('text', jdata))
@@ -168,11 +209,21 @@ class ClientTwtStream(ClientStream):
         """ this is where actuall twitter data comes unless you specify on_twitter_data_cb on ini
         """
         self.response.data = data
-        # store last VALID data in anycase (helpfull in Error recovery
+        # store last VALID data in any case (helpfull in Error recovery)
         # for example by checking id or date
         # print data['text']
 
-    def on_twitter_msg(self, msg):
+    def on_twitter_msg_base(self, msg):
+        """ twitter messages come here first so we can handle some cases here
+            see codes: https://dev.twitter.com/streaming/overview/messages-types
+        """
+
+        msg_type = list(msg.keys())[0]
+        self.on_twitter_msg(msg_type, msg)
+        if msg_type == 'disconnect':
+            self.request_abort_set(msg[msg_type]['code'], msg[msg_type]['reason'])
+
+    def on_twitter_msg(self, msg_type, msg):
         print msg
 
     def reqstrm(self, end_point, method, test_server, **kwargs):
@@ -191,7 +242,6 @@ class ClientTwtStream(ClientStream):
         url = TWT_URL_API_STREAM.format(ep_lst[0], "/".join(ep_lst[1:]))
         if test_server:
             url = url.replace("https", 'http').replace('.com', '.com:8080')
-        # print ("url ", url)
         return self.request(url, method, kwargs)
 
     def help(self, *args, **kwargs):
@@ -203,9 +253,14 @@ class ClientTwtStream(ClientStream):
         if dic_keys[-1] == 'test':
             test_server = True
             dic_keys = dic_keys[:-1]
+            if dic_keys[-1] == 'error':
+                # simulate error testing
+                return self.reqstrm('/'.join(dic_keys), 'GET', test_server, **kwargs)
+            else:
+                rt = self._endpoints.get_value_validate(dic_keys)
         else:
             test_server = False
-        rt = self._endpoints.get_value_validate(dic_keys)
+            rt = self._endpoints.get_value_validate(dic_keys)
         if rt:
             return self.reqstrm(rt.path, rt.method, test_server, **kwargs)
         else:
@@ -213,6 +268,6 @@ class ClientTwtStream(ClientStream):
 
     def _reset_retry(self):
         self._retry_counters = DotDot({'retries': 0, 'bo_err_420': 60, 'bo_err_http': 5})
-# ################################################### @Todo remove vv
+# ################################################### @Todo remove on production vv
 clr = ClientTwtRest(credentials=Credentials(**TEMP_CREDENTIALS), verbose=False)
 cls = ClientTwtStream(credentials=Credentials(**TEMP_CREDENTIALS), verbose=False)

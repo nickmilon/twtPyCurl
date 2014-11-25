@@ -59,11 +59,6 @@ class ErrorRqCurl(ErrorRq):
     def __init__(self, err_number, msg):
         super(ErrorRqCurl, self).__init__(locals())
 
-    def __str__(self):
-        if self.request_method and self.resource_url:
-            return '%s (%s %s)' % (self._msg, self.method, self.url)
-        return self._msg
-
 
 class CredentialsProvider(object):
     appl_keys = ['id_appl', 'consumer_access_token']
@@ -156,23 +151,33 @@ class Response(object):
        but here we want a fast alternative with a small footprint
     """
     def reset(self):
+        # caution status_provisional we will only get it if we:
+        # 1) hit a server
+        # 2) server sends proper headers
         self.headers_raw = []
         self.data = ''
-        self.status = None
+        self.status_http = None         # status(int) from curl we get it only well after perform:(
+        self.status_provisional = None  # status(int) we derive it early from first header line
         self._headers = None
         self.err_curl = None
 
     def write_headers(self, headers_data):
+        if self.headers_raw == []:      # first headers record
+            try:
+                self.status_provisional = int(headers_data.split(" ")[1])
+            except (ValueError, IndexError):
+                pass
         self.headers_raw.append(headers_data.strip())
 
     @property
     def headers(self):
         """ set headers dictionary on demand and only once"""
         if self._headers is None:
-            lh = self.headers_raw  # .strip().split("\r\n")
+            lh = self.headers_raw
             hl = [hdr.split(': ') for hdr in lh if hdr and not hdr.startswith('HTTP/')]
             self._headers = DotDot((header[0].lower(), header[1]) for header in hl)
-            self._headers.status_str = lh[0]
+            if lh:
+                self._headers.status_raw = lh[0]
         return self._headers
         # response['status'] = self.curl_handle.getinfo(pycurl.HTTP_CODE)
 
@@ -213,6 +218,7 @@ class Client(object):
             self._curl_options = DotDot()
             self._vars = DotDot({'last_progress': None})
             self._last_req = DotDot()
+            self._state = DotDot()  # keeps state of retries etc.
             self.on_data = on_data_cb if on_data_cb else self.on_data_default
             self.handle = None
             self.response = Response()
@@ -231,7 +237,8 @@ class Client(object):
 
     @request_headers.setter
     def request_headers(self, request_headers):
-        """a list of request headers i.e: ['Accept: text/html', 'Max-Forwards : 2']"""
+        """ list of request headers i.e:['Accept: text/html', 'Max-Forwards : 2']
+        """
         self._request_headers = request_headers
 
     @property
@@ -330,21 +337,21 @@ class Client(object):
 
     @property
     def request_abort(self):
-        return self._abort_request
+        return self._request_abort
 
-    @request_abort.setter
-    def request_abort(self, None_or_reason_tuple=None):
+    def request_abort_set(self, reason_num=None, reason_msg=None):
         """ Raise or reset _request_abort property
-            if is not None aborts current request by returning a not None value while
-            on accepting data or headers.
+            if reason_num is not None aborts current request by returning -1 while
+            on accepting data or headers
+            effetively server sees an (104 Connection reset by peer) or (32 broken pipe )
             thats the only way to disconnet an a connection
             its use makes more sence for streaming data connection
-                Args:None_or_reason_tuple None or an abort reason tuple of the form:
-                     (reason_code_int, reason_str)
+                Args:reason_num (None or int)
+                    :reason_msg (str) a message
                 Usasge: set it to Not None value to try to abort current request
                         main purpose is controlled exit from a streaming request
         """
-        self._abort_request = None_or_reason_tuple
+        self._request_abort = (None,) if reason_num is None else (-1, reason_num, reason_msg)
 
     def on_progress(self, *args):
         sm = sum(args)
@@ -358,7 +365,7 @@ class Client(object):
         # no risk of div/0 (upload_t can't be 0 if upload_d !=0)
         download_perc = (download_d / download_t) * 100 if download_d != 0 else 0
         if upload_perc + download_perc:
-            print self.format_progress.format(download_perc, upload_perc)
+            print (self.format_progress.format(download_perc, upload_perc))
         return None
 
     def on_request_start(self):
@@ -368,58 +375,51 @@ class Client(object):
     def on_request_end(self):
         pass
 
-    def on_request_error_curl(self, err, state):
+    def on_request_error_curl(self, err):
         """ default error handling, for curl (connection) Errors override method for any special handling
             see error codes http://curl.haxx.se/libcurl/c/libcurl-errors.html
             #(E_COULDNT_CONNECT= 7)
             return True to retry request
             raise an exception or return False to abort
         """
-        if err[0] == pycurl.E_WRITE_ERROR and self.request_abort:   # 23
+        if err[0] == pycurl.E_WRITE_ERROR and self._request_abort[0] is not None:  # 23
             return False  # normal termination requested by us
         raise ErrorRqCurl(err[0], err[1])
 
-    def on_request_error_http(self, err, state):
+    def on_request_error_http(self, err):
         """ default error handling, for HTTP Errors override method for any special handling
             return True to retry request
             raise an exception or return False to abort
         """
         print ("Exception %s" % (err))
-        raise ErrorRqHttp(err, self.response)
+        raise ErrorRqHttp(err, self.response.status_http)
 
     def _perform(self):
         self.on_request_start()
+        self._state.retries_curl = 0
+        self._state.retries_http = 0
         retry = True
-        state = DotDot()
-        state.tries = -1  # 0 based (first try is number 0
         while retry:
-            state.tries += 1
+            self._state.retries_curl += 1
+            self._state.retries_http += 1
             retry = False
-            self.request_abort = None
+            self.request_abort_set(None)
             self.response.reset()
             try:
-                state.dt_perform_start = datetime.utcnow()
-                self.perform()
-                state.tries = -1
-                print "state.tries ", state.tries
+                self.handle.perform()
             except pycurl.error as err:
-                print ("errrr ", err)
-                state.dt_error_start = datetime.utcnow()
-                state.time_since_perform = state.dt_error_start - state.dt_perform_start
                 self.response.err_curl = err
-                retry = self.on_request_error_curl(err, state)
+                retry = self.on_request_error_curl(err)
             finally:
-                self.response.status = self.handle.getinfo(pycurl.HTTP_CODE)
-                if self.response.status > 299:
-                    retry = self.on_request_error_http(self.response.status)
+                self.response.status_http = self.handle.getinfo(pycurl.HTTP_CODE)
+                if self.response.status_http > 299:
+                    retry = self.on_request_error_http(self.response.status_http)
                 self.on_request_end()
         return self.response
 
-    def request(self, url, method, parms={},
-                multipart=False
-                ):
+    def request(self, url, method, parms={}, multipart=False):
         self.handle_set(url, method, parms, multipart)
-        return self.perform()
+        return self._perform()
 
     def request_repeat(self):
         """ repeat last request
@@ -446,8 +446,15 @@ class Client(object):
         return user_agent_str
 
     def handle_on_headers(self, header_data):
+        # first header is always the status line
+        # last header_data is always a "\r\n"
         self.response.write_headers(header_data)
-        return self._abort_request  # disconnect if an abort
+        if len(self.response.headers_raw) == 1:
+            if self.response.status_provisional is not None:
+                self._state.retries_curl = 0                # successful connection
+                if self.response.status_provisional < 300:
+                    self._state.retries_http = 0            # successful http status
+        return self._request_abort[0]                       # disconnect if an abort
 
     def handle_on_write(self, data):
         """ this must return None or number of bytes received else connection terminates
@@ -491,7 +498,7 @@ class Client(object):
 
 
 class ClientStream(Client):
-    format_stream_stats = "|{DHMS:s}|{chunks:12d}|{data:12d}|{data_perSec_avg:10.2f}|"
+    format_stream_stats = "|{DHMS:s}|{chunks:15,d}|{data:14,d}|{data_perSec_avg:12,.2f}|"
     # format string for printing stats
 
     def __init__(self, credentials=None, data_separator="\r\n",
@@ -502,21 +509,6 @@ class ClientStream(Client):
         self.stats_every = stats_every
         self.counters = DotDot({'chunks': 0, 'data': 0})
         super(ClientStream, self).__init__(credentials, **kwargs)
-
-    def xx_handle_on_write(self, data_chunk):
-        """ this must return None or number of bytes received else connection terminates"""
-        if True:  # ###data !='':
-            self.counters.chunks += 1
-            self.resp_buffer.append(data_chunk)
-            if data_chunk.endswith(self.data_separator):
-                self.handle_on_write_record("".join(self.resp_buffer)[:-self.data_separator_len])
-                # self.handle_on_write_record("".join(self.resp_buffer)[:2])
-                self.resp_buffer = []  # l[:] = []
-                return self._abort_request
-            elif len(self.resp_buffer) > 100:
-                raise ErrorRqStream(201, "buffer overun possibly stream isn't delimited ?")
-                return True
-        return self._abort_request
 
     def handle_on_write(self, data_chunk):
         """ this must return None or number of bytes received else connection terminates"""
@@ -535,19 +527,19 @@ class ClientStream(Client):
                 self.resp_buffer = ''
                 if self.stats_every and self.counters.data % self.stats_every == 0:
                     self.print_stats()
-        return self._abort_request
+        return self._request_abort[0]
 
     def on_data_default(self, data):
         """this is where actual data comes after chunks are merged,
            if you don't specify an on_data_cb function on init.
            Override it in descedants
         """
-    def reset_counters(self):
-        for i in list(self.counters.keys()):
+    def _reset_counters(self, counters_dict):
+        for i in list(counters_dict.keys()):
             self.counters[i] = 0
 
     def on_request_start(self):
-        self.reset_counters()
+        self._reset_counters(self.counters)
         self.resp_buffer = ''  # for Streams we don't output to response object for efficiency
         self.dt_start = datetime.utcnow()
 

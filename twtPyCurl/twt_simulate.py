@@ -3,8 +3,10 @@ Created on June 19, 2014
 
 @author: nickmilon
 '''
+# see http://stackoverflow.com/questions/25347176/scaling-bjoern-to-multiple-servers
+
 from twtPyCurl import _IS_PY3
-print locals()
+
 if _IS_PY3:
         print ("this module is not compatible with python versions >= 3")
         exit()
@@ -21,6 +23,7 @@ import simplejson
 import argparse
 import weakref
 import gzip
+from random import randint
 from gevent.pywsgi import WSGIServer
 from gevent import sleep, Greenlet, pool, joinall
 from twtPyCurl import _PATH_TO_DATA
@@ -30,6 +33,16 @@ from Hellas.Sparta import seconds_to_DHMS
 GL_STREAM_DELAY = 0       # Default stream delay between data (seconds)
 GL_REPORT_EVERY = 1
 DATA_SEPARATOR = "\r\n"
+GL_ERRORS_EVERY = 0
+ERROR_CNT = 0
+
+MSG_DISCONNECT = {
+    "disconnect": {
+        "code": 1,
+        "stream_name": "sample",
+        "reason": ""
+        }
+    }
 
 
 class TweetsSampler():
@@ -39,7 +52,7 @@ class TweetsSampler():
         tweets_sample[i]['_aux'] = {'SeqGlobal': i}
     tweets_sample = [simplejson.dumps(doc) for doc in tweets_sample]
     tweets_sample_len = len(tweets_sample)
-    format_stats = "|%3d|%s|%12d|%8d|%8.1f|%s|"
+    format_stats = "|{:3d}|{}|{:14,d}|{:10,d}|{:10,.1f}|{}|"
     instances = weakref.WeakSet()
     cls_dt_start = datetime.utcnow()
     cls_clients = 0
@@ -63,8 +76,9 @@ class TweetsSampler():
             tmp = (dt_now - cls.cls_dt_start).total_seconds()
             num_of_instances = len(cls.instances)
             if num_of_instances == 0:
-                print cls.format_stats % (-1, seconds_to_DHMS(tmp),
-                                          -1, -1.0, -1.0, "%2d" % (num_of_instances))
+                print cls.format_stats.format(
+                    -1, seconds_to_DHMS(tmp),
+                    -1, -1, -1, "%2d" % (num_of_instances))
             else:
                 for inst in cls.instances:
                     inst.report_stats()
@@ -83,12 +97,13 @@ class TweetsSampler():
             dt_now = datetime.utcnow()
             tmp = (dt_now - self.dt_start).total_seconds()
             avg_docs_per_sec = (self.cnt / tmp)
-            print self.format_stats % (self.cl_number, seconds_to_DHMS(tmp),
-                                       self.cnt, self.cnt-self.cnt_last, avg_docs_per_sec, '**')
+            print self.format_stats.format(
+                self.cl_number, seconds_to_DHMS(tmp),
+                self.cnt, self.cnt-self.cnt_last, avg_docs_per_sec, '**')
             self.cnt_last = self.cnt
 
     def yield_tweets(self, max_n=None):
-        format_yield = "%s\r\n"
+        format_yield = "%s" + DATA_SEPARATOR
         self.cnt = 0
         self.dt_start = datetime.utcnow()
         while max_n is None or self.cnt < self.max_n:
@@ -153,7 +168,19 @@ def stream(request, responce):
     sc = ServerClient(request, response)
     CLIENTS.add_client(sc)
     for data in tweets_sample.yield_tweets(max_n=None):
-        yield data
+        if GL_ERRORS_EVERY:
+            rnd1 = randint(1, GL_ERRORS_EVERY)
+            if rnd1 == 1:  # handle disconnect messages
+                rnd2 = randint(1, 12)  # https://dev.twitter.com/streaming/overview/messages-types
+                MSG_DISCONNECT['disconnect']['code'] = rnd2
+                yield simplejson.dumps(MSG_DISCONNECT) + DATA_SEPARATOR
+            if rnd1 == 2:
+                rnd2 = randint(500, 504)
+                response.status = rnd2
+            else:
+                yield data
+        else:
+            yield data
         sleep(GL_STREAM_DELAY)
 
 
@@ -169,12 +196,26 @@ def stream_filter():
 
 @route('/1.1/statuses/firehose.json', method=['GET'])
 def stream_firehose():
+    return "ffffff"
     return stream(request, response)
+
+
+@route('/1.1/statuses/error.json', method=['GET', 'POST'])
+def error_http():
+    """ simulates http errors """
+    global ERROR_CNT
+    ERROR_CNT += 1
+    if ERROR_CNT % 3 == 0:
+        return stream(request, response)
+    else:
+        print ("SERVER ERROR_CNT:{:2d}".format(ERROR_CNT))
+        response.status = int(request.query.get("err_code", 200))
+        return simplejson.dumps({'http_error': response.status}) + DATA_SEPARATOR
 
 
 def simple_stream_appl(environ, start_response):
     """simple pure gevent WSGIServer stream server """
-    # kind of test to see if it's more efficient than bottle over gevent
+    # kind of test to see if it's more efficient than bottle over WSGIServer
     # TL;DR results show just a small marginal improvement
     status = '200 OK'
     headers = [
@@ -189,7 +230,7 @@ def simple_stream_appl(environ, start_response):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="set up server")
-    parser.add_argument('-server',  default='bottle',   choices=['bottle', 'gevent'],
+    parser.add_argument('-server',  default='gevent',   choices=['WSGIServer', 'gevent', 'bjoern'],
                         help='use bottle or gevent WSGIServer(only for Streaming)')
     parser.add_argument('-host',    default='0.0.0.0',
                         help='host name or ip defaults to:0.0.0.0')
@@ -197,6 +238,8 @@ def parse_args():
                         help='port number defaults to 8080')
     parser.add_argument("-delay",   default=0, type=float,
                         help='delay in seconds between data i.e:0.001, defaults to 0')
+    parser.add_argument("-errors_every", default=0, type=int,
+                        help='simulate possible errors inject errors every 0=never')
     parser.add_argument("-debug",   default=False, action="store_true",
                         help='debug (engages bottle catchall')
     parser.add_argument("-report",  default=1, type=int, help='report every N seconds')
@@ -207,17 +250,19 @@ def main():
         args = parse_args()
         global GL_STREAM_DELAY
         global GL_REPORT_EVERY
+        global GL_ERRORS_EVERY
         GL_STREAM_DELAY = args.delay
         GL_REPORT_EVERY = args.report
+        GL_ERRORS_EVERY = args.errors_every
         print "starting server", vars(args)
-        if args.server == 'gevent':
+        if args.server == 'WSGIServer':
             server = WSGIServer((args.host, args.port), simple_stream_appl, spawn=pool.Pool(100))
             server = Greenlet.spawn(server.serve_forever)
         else:
             appl = app()
             if args.debug:
                 appl.catchall = False
-            server = Greenlet.spawn(appl.run, host=args.host, port=args.port, server='gevent')
+            server = Greenlet.spawn(appl.run, host=args.host, port=args.port, server=args.server)
         report = Greenlet.spawn(TweetsSampler.report)
         joinall([report, server])
 
