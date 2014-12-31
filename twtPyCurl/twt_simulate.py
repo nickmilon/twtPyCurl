@@ -80,7 +80,7 @@ class TweetsSampler():
                     -1, seconds_to_DHMS(tmp),
                     -1, -1, -1, "%2d" % (num_of_instances))
             else:
-                for inst in cls.instances:
+                for inst in list(cls.instances):
                     inst.report_stats()
                     sleep(0.01)
                     del inst
@@ -108,7 +108,7 @@ class TweetsSampler():
         self.dt_start = datetime.utcnow()
         while max_n is None or self.cnt < self.max_n:
             self.cnt += 1
-            yield format_yield % self.tweets_sample[self.cnt % self.tweets_sample_len]
+            yield format_yield % self.tweets_sample[self.cnt % self.tweets_sample_len], self.cnt
 
 
 class Clients(object):
@@ -167,7 +167,7 @@ def stream(request, responce):
     tweets_sample = TweetsSampler()
     sc = ServerClient(request, response)
     CLIENTS.add_client(sc)
-    for data in tweets_sample.yield_tweets(max_n=None):
+    for data, cnt in tweets_sample.yield_tweets(max_n=None):
         if GL_ERRORS_EVERY:
             rnd1 = randint(1, GL_ERRORS_EVERY)
             if rnd1 == 1:  # handle disconnect messages
@@ -180,6 +180,8 @@ def stream(request, responce):
             else:
                 yield data
         else:
+            if cnt % 100 == 0:  # simulate keep_alives
+                yield ''
             yield data
         sleep(GL_STREAM_DELAY)
 
@@ -195,8 +197,7 @@ def stream_filter():
 
 
 @route('/1.1/statuses/firehose.json', method=['GET'])
-def stream_firehose():
-    return "ffffff"
+def stream_firehose(): 
     return stream(request, response)
 
 
@@ -248,13 +249,13 @@ def parse_args():
 
 def main():
         args = parse_args()
+        print "starting server", vars(args)
         global GL_STREAM_DELAY
         global GL_REPORT_EVERY
         global GL_ERRORS_EVERY
         GL_STREAM_DELAY = args.delay
         GL_REPORT_EVERY = args.report
         GL_ERRORS_EVERY = args.errors_every
-        print "starting server", vars(args)
         if args.server == 'WSGIServer':
             server = WSGIServer((args.host, args.port), simple_stream_appl, spawn=pool.Pool(100))
             server = Greenlet.spawn(server.serve_forever)

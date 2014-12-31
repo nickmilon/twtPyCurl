@@ -3,7 +3,9 @@ Created on Nov 10, 2014
 
 @author: milon
 '''
+
 TWT_API_VERSION = '1.1'
+TWT_PIC = 'http://twitter.com/{screen_name:}/status/{id_str:}/photo/{cnt:}'
 TWT_URL = 'https://{subdomain}.twitter.com/{path}'
 TWT_URL_API = TWT_URL.format(subdomain='{{subdomain}}',
                              path='{version}/{{path}}.json').format(version=TWT_API_VERSION)

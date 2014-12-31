@@ -9,7 +9,7 @@ from Hellas.Pella import file_to_base64
 from twtPyCurl.constants import TWT_URL_MEDIA_UPLOAD, TWT_URL_API_REST, TWT_URL_API_STREAM
 
 from twtPyCurl.helpers.requests import simplejson, pycurl, Client, ClientStream, Credentials,\
-    CredentialsProviderFile, ErrorRq, ErrorRqCurl, ErrorRqHttp
+    CredentialsProviderFile, ErrorRq, ErrorRqCurl, ErrorRqHttp, format_header
 from time import sleep
 from twtPyCurl.twt_endpoints import EndPointsRest, EndPointsStream
 import logging
@@ -53,7 +53,10 @@ class ErrorRqHttpTwt(ErrorRq):
 
 
 class ClientTwtRest(Client):
-    """ client for Twitter rest api """
+    """ client for Twitter rest api
+        Usage:
+            client.api.search.tweets(q="Greece", count=100)
+    """
     def __init__(self, credentials=None,
                  **kwargs):
         self._endpoints = EndPointsRest(parent=self)
@@ -102,16 +105,21 @@ class ClientTwtStream(ClientStream):
     """ disconnect can be initiated by a meesage to disconnect from twitter
         or by program by setting request_abort property to a tuple (code,message)
     """
+    format_stream_stats = ClientStream.format_stream_stats + "{t_data:14,d}|{t_msgs:8,d}|"
+    format_stream_stats_header = format_header(format_stream_stats)
+
     def __init__(self, credentials=None,
                  stats_every=1000,  # 0 or None to disable stats
                  **kwargs):
         self._reset_retry()
         self._endpoints = EndPointsStream(parent=self)  # composition with endpoints object
-        super(ClientTwtStream, self).__init__(credentials, stats_every=stats_every, **kwargs)
         # delegate to endpoints could be done automatically but that would be too hackish
         self.stream = self._endpoints.stream
         self.sitestream = self._endpoints.sitestream
         self.userstream = self._endpoints.userstream
+        self.name = kwargs.get('name')  # parent class will set it again but we need it now
+        super(ClientTwtStream, self).__init__(credentials, stats_every=stats_every, **kwargs)
+        self.counters.update({'t_data': 0, 't_msgs': 0})
 
     def on_request_error_curl(self, err):
         """ default error handling, for curl (connection) Errors override method for any special handling
@@ -132,18 +140,18 @@ class ClientTwtStream(ClientStream):
             if code <= 12:  # https://dev.twitter.com/streaming/overview/messages-types
                 if code in [2, 4, 7]:               # danger dublicate stream or something
                     raise ErrorTwtStreamDisconnectReq(code, msg)
-                elif code in [1, 10, 11, 12]:        # twitter mulfunction
+                elif code in [1, 10, 11, 12]:        # twitter malfunction
                     if self.wait_on_nw_error(self._state.retries_curl) is not False:
                         # try to reconnect
                         self._log_retry("twt_disconnect_req", code, msg, self._state.retries_curl)
                         return True
                     else:
-                        raise ErrorTwtStreamDisconnectReq(code + 100, "couldn't revover: " + msg)
+                        raise ErrorTwtStreamDisconnectReq(code + 100, "can't recover: " + str(msg))
                 else:
-                    raise ErrorTwtStreamDisconnectReq(code, "we don't handle:" + msg)
+                    raise ErrorTwtStreamDisconnectReq(code, "we don't handle:" + str(msg))
             elif code == 1001:    # by convention > 1000 comes from our side
                     return False  # disconnect gracefully
-            raise ErrorTwtStreamDisconnectReq(code, "we don't handle:" + msg)
+            raise ErrorTwtStreamDisconnectReq(code, "we don't handle:" + str(msg))
         # @TODO handle user streams etc
         raise ErrorRqCurl(err[0], err[1])
 
@@ -156,11 +164,12 @@ class ClientTwtStream(ClientStream):
             if self.wait_on_http_error(self._state.retries_http):
                 self._log_retry("http", err, "", self._state.retries_http)
                 return True
+        self.response.data = self.resp_buffer
         raise ErrorRqHttp(err, self.response)
 
     def _log_retry(self, error_type, err_num, err_msg, cur_try):
-        frmt = 'auto recovering {error_type} error num= {err_num!s} {err_msg}, retries{cur_try:2d}'
-        log.warning(frmt.format(**locals()))
+        frmt = '{:s} -auto recovering {error_type} error num= {err_num!s} {err_msg}, retries{cur_try:2d}'
+        log.warning(frmt.format(self.name, **locals()))
 
     @classmethod
     def wait_seconds(cls, try_cnt, initial, maximum, tries_max=5, exponential=False):
@@ -194,12 +203,23 @@ class ClientTwtStream(ClientStream):
         """ this is where actual stream data comes after chunks are merged,
             if we don't specify an on_data_cb function on init
         """
+#         try:
+#             jdata = simplejson.loads(data)
+#         except simplejson.scanner.JSONDecodeError as e:
+#             # we can get here if response status was not 200
+#             # or a misformed json (never happened)
+#             # we don't raise Exception since probably it will raised at end of request
+#             self.response.data = data
+#             log.warning("json error={:s} body date={:s}".format(e, data))
+#             print (e, "data="+data)
         jdata = simplejson.loads(data)
         if self._last_req.subdomain == 'stream':  # it is a statuses stream
             if jdata.get('source') is not None:
                 # it is a status (all statuses have source sometimes can be '')
+                self.counters.t_data += 1
                 self.on_twitter_data(jdata)
             else:
+                self.counters.t_msgs += 1
                 self.on_twitter_msg_base(jdata)        # then it is message
         else:
             pass
@@ -208,7 +228,7 @@ class ClientTwtStream(ClientStream):
     def on_twitter_data(self, data):
         """ this is where actuall twitter data comes unless you specify on_twitter_data_cb on ini
         """
-        self.response.data = data
+        # self.response.data = data
         # store last VALID data in any case (helpfull in Error recovery)
         # for example by checking id or date
         # print data['text']
@@ -269,5 +289,7 @@ class ClientTwtStream(ClientStream):
     def _reset_retry(self):
         self._retry_counters = DotDot({'retries': 0, 'bo_err_420': 60, 'bo_err_http': 5})
 # ################################################### @Todo remove on production vv
-clr = ClientTwtRest(credentials=Credentials(**TEMP_CREDENTIALS), verbose=False)
-cls = ClientTwtStream(credentials=Credentials(**TEMP_CREDENTIALS), verbose=False)
+# 
+# clr = ClientTwtRest(credentials=Credentials(**TEMP_CREDENTIALS), allow_retries=False, name="test_r", verbose=False)
+# cls = ClientTwtStream(credentials=Credentials(**TEMP_CREDENTIALS), allow_retries=False, name="test_s",verbose=False)
+# r = cls.stream.statuses.filter(track="(,:),-(")

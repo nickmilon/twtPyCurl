@@ -16,15 +16,16 @@ import urlparse
 from datetime import datetime
 from twtPyCurl.__init__ import __version__, path
 from Hellas.Sparta import seconds_to_DHMS, DotDot
+from Hellas.Pella import dict_copy
+from Hellas.Thiva import format_header
 from twtPyCurl.helpers.oauth import OAuth1, OAuth2
-from copy import copy
 
 
 class ErrorRq(Exception):
     """Exception base"""
     def __init__(self, arg_dict={}):
-        self._args = DotDot(([copy(i) for i in arg_dict.items() if i[0] != 'self']))
-        # except self so descentants can just sent locas()
+        self._args = dict_copy(arg_dict, ['self'])
+        # except self so descentants can just sent locals()
         # copy so can safely meddle with it, but remember it is NOT a deep copy
 
     def __reduce__(self):
@@ -73,6 +74,12 @@ class CredentialsProvider(object):
         raise NotImplementedError
 
     @classmethod
+    def on_revoke_credentials(self, appl_id, user_id):
+        """ inherited classes should handle this
+        """
+        raise NotImplementedError
+
+    @classmethod
     def validate(self, credentials_dict):
         lsr_cr_keys = list(credentials_dict.keys())
         rt = [i for i in self.appl_keys if i not in lsr_cr_keys]
@@ -94,7 +101,7 @@ class CredentialsProviderFile(CredentialsProvider):
 
     @classmethod
     def get_credentials(cls, file_path=None):
-        if file_path is None:  # @Note defaults to credentials.json in home directory
+        if file_path is None:  # defaults to credentials.json in home directory
             file_path = "{}/credentials.json".format(path.expanduser("~"))
         with open(file_path, "r") as fin:
             crd_dict = simplejson.load(fin)
@@ -106,7 +113,7 @@ class Credentials(object):
         kwargs = DotDot(kwargs)
         self.id_user = kwargs.get('id_user')  # defaults to None (application credentials)
         self.user_name = kwargs.get('user_name', self.id_user)  # defaults to id_user
-        self.id_appl = kwargs.id_appl                         # required
+        self.id_appl = kwargs.id_appl                           # required
         if len(list(kwargs.keys())) > 2:
             if self.id_user is None:
                 self.is_appl = True
@@ -137,6 +144,11 @@ class Credentials(object):
         else:
             return ''
 
+    def on_revoke_credantials(self):
+        """ handles revoking credentials
+        """
+        raise NotImplementedError
+
     def __repr__(self):
         return '<{:s}:{:s}>'.format(self.__class__.__name__, self.id)
 
@@ -150,10 +162,12 @@ class Response(object):
        a better alternative is HTTPMessage of httplib
        but here we want a fast alternative with a small footprint
     """
+    def __init__(self):
+        self.reset()
+
     def reset(self):
         # caution status_provisional we will only get it if we:
-        # 1) hit a server
-        # 2) server sends proper headers
+        # a) hit a server and b) server sends proper headers
         self.headers_raw = []
         self.data = ''
         self.status_http = None         # status(int) from curl we get it only well after perform:(
@@ -182,14 +196,6 @@ class Response(object):
         # response['status'] = self.curl_handle.getinfo(pycurl.HTTP_CODE)
 
 
-class CurlHelper(object):
-    all = [[k, v] for k, v in list(pycurl.__dict__.items()) if isinstance(v, int)]
-    all = sorted(all, key=lambda x: x[1])
-    err = DotDot([[i[0], i[1]] for i in all if i[0].startswith('E_')])
-    time = DotDot([[i[0], i[1]] for i in all if i[0].endswith('_TIME')])
-    speed = DotDot([[i[0], i[1]] for i in all if i[0].endswith('SPEED_')])
-
-
 class Client(object):
     """ this is a minimal library for HTTP Requests via curl/pycurl
         for efficiency urls are NOT treated
@@ -202,14 +208,18 @@ class Client(object):
         'user_agent',  # user_agent to be used by request defaults to clsss name + 'v '+ __version_
         'verbose',     # 0 for silent mode 1 to turn curl verbose on, 2 to turn curl debug mode on
         'on_data_cb',
+        'name'         # a name to distinguish the instance
+        'allow_retries'
         ]
     format_progress = "|progress |download:{:6.2f}%| upload:{:6.2f}%|"
 
     def __init__(
         self,
-        credentials=None,   # credentials (see credentials class)
-        on_data_cb=None,    # a function to execute when data arrive
-        user_agent=None,    # a user agent string to use in request
+        credentials=None,  # credentials (see credentials class)
+        on_data_cb=None,   # a function to execute when data arrive
+        user_agent=None,   # a user agent string to use in request
+        name=None,         # a name to distinguish the instance (defaults to str(id(instance))[-4:]
+        allow_retries=True,
             **kwargs):
             tmp = [i for i in list(kwargs.keys()) if i not in self.valid_kwargs]
             if tmp:
@@ -226,10 +236,22 @@ class Client(object):
             self.request_headers = []
             self.verbose = self.kwargs.get('verbose', 0)
             self.set_user_agent(kwargs.get('user_agent', None))
+            self.name = name
+            self.allow_retries = allow_retries
             if kwargs.get('request'):
                 self.request(self.kwargs.request[0],
                              self.kwargs.request[1],
                              self.kwargs.request[2])
+
+    @property
+    def name(self):
+        return self._name
+
+    @name.setter
+    def name(self, name=None):
+        """ instance name
+        """
+        self._name = name if name is not None else str(id(self))[-4:]
 
     @property
     def request_headers(self):
@@ -274,6 +296,7 @@ class Client(object):
         if self.handle is None:
             self._handle_init()
         headers = [i for i in self.request_headers]  # @Note add copy of standard headers
+        #headers.append('Expect:\r\n') # NM21 test
         if self.credentials is not None:
                 """ allthough not needed if authorization type is application
                     set it any way, so credentials can be reseted on the fly
@@ -305,7 +328,7 @@ class Client(object):
                 # headers.append("Content-Transfer-Encoding: base64") ? do we need it
         else:
             raise KeyError('method:[%s] is not supported' % method)
-        self.handle.setopt(pycurl.HTTPHEADER, headers)
+        self.handle.setopt(pycurl.HTTPHEADER, headers) 
 
     def curl_set_option(self, option, value):
         """ used for general options like verbose, noprogress etc
@@ -343,7 +366,7 @@ class Client(object):
         """ Raise or reset _request_abort property
             if reason_num is not None aborts current request by returning -1 while
             on accepting data or headers
-            effetively server sees an (104 Connection reset by peer) or (32 broken pipe )
+            effectively server sees an (104 Connection reset by peer) or (32 broken pipe )
             thats the only way to disconnet an a connection
             its use makes more sence for streaming data connection
                 Args:reason_num (None or int)
@@ -394,7 +417,7 @@ class Client(object):
         print ("Exception %s" % (err))
         raise ErrorRqHttp(err, self.response.status_http)
 
-    def _perform(self):
+    def request(self, url, method, parms={}, multipart=False):
         self.on_request_start()
         self._state.retries_curl = 0
         self._state.retries_http = 0
@@ -405,19 +428,29 @@ class Client(object):
             retry = False
             self.request_abort_set(None)
             self.response.reset()
+            self.handle_set(url, method, parms, multipart)
+            # we must call handle_set it every time to get fresh credentials
+            # (Out-of-sync timestamp in case we retry after long time)
+            self._before_perform()
             try:
                 self.handle.perform()
             except pycurl.error as err:
                 self.response.err_curl = err
-                retry = self.on_request_error_curl(err)
+                retry = self.on_request_error_curl(err) if self.allow_retries else False
             finally:
                 self.response.status_http = self.handle.getinfo(pycurl.HTTP_CODE)
                 if self.response.status_http > 299:
-                    retry = self.on_request_error_http(self.response.status_http)
+                    if self.allow_retries:
+                        retry = self.on_request_error_http(self.response.status_http)
+                    else:
+                        retry = False
                 self.on_request_end()
         return self.response
 
-    def request(self, url, method, parms={}, multipart=False):
+    def _before_perform(self):
+        pass
+
+    def del_request(self, url, method, parms={}, multipart=False):
         self.handle_set(url, method, parms, multipart)
         return self._perform()
 
@@ -498,7 +531,8 @@ class Client(object):
 
 
 class ClientStream(Client):
-    format_stream_stats = "|{DHMS:s}|{chunks:15,d}|{data:14,d}|{data_perSec_avg:12,.2f}|"
+    format_stream_stats = "|{name:4s}|{DHMS:12s}|{chunks:15,d}|{data:14,d}|{avg_per_sec:12,.2f}|"
+    format_stream_stats_header = format_header(format_stream_stats)
     # format string for printing stats
 
     def __init__(self, credentials=None, data_separator="\r\n",
@@ -507,16 +541,21 @@ class ClientStream(Client):
         self.data_separator = data_separator
         self.data_separator_len = len(data_separator)
         self.stats_every = stats_every
-        self.counters = DotDot({'chunks': 0, 'data': 0})
+        self.stream_started = False
+        self.counters = DotDot({'name': self.name[:4], 'chunks': 0,
+                                'DHMS': '', 'avg_per_sec': 0,
+                                'data': 0})
         super(ClientStream, self).__init__(credentials, **kwargs)
-
     def handle_on_write(self, data_chunk):
         """ this must return None or number of bytes received else connection terminates"""
-        # Note:tryied it with a list buffer and join with very marginal efficiency imporvements
+        # Note:tryied it with a list buffer and join with very marginal efficiency improvements
         #      when actual data/chunks ratio is close to 1.
         #      Also cstringIO complicates things due to utf data handling
         # Note:descented classes can check len(self.resp_buffer) to protect
-        #      from buffer ogveruns (not properly delimited streams)
+        #      from buffer overruns (not properly delimited streams)
+#         if self.stream_started is False:  # NM21
+#             print " Response " * 20, self.response.headers
+#             self.stream_started = True
         self.counters.chunks += 1
         self.resp_buffer += data_chunk
         if self.resp_buffer.endswith(self.data_separator):
@@ -526,22 +565,28 @@ class ClientStream(Client):
                 self.on_data(self.resp_buffer)
                 self.resp_buffer = ''
                 if self.stats_every and self.counters.data % self.stats_every == 0:
+                    if self.stats_every == self.counters.data:
+                        print (self.format_stream_stats_header)
                     self.print_stats()
         return self._request_abort[0]
 
     def on_data_default(self, data):
         """this is where actual data comes after chunks are merged,
            if you don't specify an on_data_cb function on init.
-           Override it in descedants
+           Override it in descendants
         """
     def _reset_counters(self, counters_dict):
-        for i in list(counters_dict.keys()):
-            self.counters[i] = 0
+        for k in list(counters_dict.keys()):
+            if k not in ['name', 'DHMS']:
+                self.counters[k] = 0
 
     def on_request_start(self):
         self._reset_counters(self.counters)
-        self.resp_buffer = ''  # for Streams we don't output to response object for efficiency
+        self.resp_buffer = ''  # for streams we don't output to response object for efficiency
         self.dt_start = datetime.utcnow()
+
+    def _before_perform(self):
+        self.resp_buffer = ''
 
     def on_request_end(self):
         pass
@@ -551,7 +596,7 @@ class ClientStream(Client):
 
     def stats_str(self):
         tmp = self.time_since_start().total_seconds()
-        self.counters.data_perSec_avg = (self.counters.data / tmp)
+        self.counters.avg_per_sec = (self.counters.data / tmp)
         self.counters.DHMS = seconds_to_DHMS(tmp)
         return self.format_stream_stats.format(**self.counters)
 

@@ -36,7 +36,7 @@ POST account/settings
 POST account/update_delivery_device
 POST account/update_profile
 POST account/update_profile_background_image
-POST account/update_profile_colors
+# POST account/update_profile_colors    		@Note: deprecated https://twittercommunity.com/t/deprecation-of-account-update-profile-colors/28692
 POST account/update_profile_image
 GET blocks/list
 GET blocks/ids
