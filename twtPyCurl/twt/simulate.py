@@ -1,11 +1,9 @@
 '''
-Created on June 19, 2014
-
-@author: nickmilon
 '''
 # see http://stackoverflow.com/questions/25347176/scaling-bjoern-to-multiple-servers
 
 from twtPyCurl import _IS_PY3
+
 
 if _IS_PY3:
         print ("this module is not compatible with python versions >= 3")
@@ -46,18 +44,14 @@ MSG_DISCONNECT = {
 
 
 class TweetsSampler():
-    with gzip.open(_PATH_TO_DATA + "tweets_sample_10000.json.gz", 'rb') as fin:
-        tweets_sample = simplejson.load(fin)
-    for i in range(0, len(tweets_sample)):
-        tweets_sample[i]['_aux'] = {'SeqGlobal': i}
-    tweets_sample = [simplejson.dumps(doc) for doc in tweets_sample]
-    tweets_sample_len = len(tweets_sample)
+    tweets_sample = None
     format_stats = "|{:3d}|{}|{:14,d}|{:10,d}|{:10,.1f}|{}|"
     instances = weakref.WeakSet()
     cls_dt_start = datetime.utcnow()
     cls_clients = 0
 
     def __init__(self, max_n=None):
+        self._init_sample()
         TweetsSampler.cls_clients += 1
         self.cl_number = TweetsSampler.cls_clients
         self.max_n = max_n
@@ -68,6 +62,19 @@ class TweetsSampler():
 
     def __iter__(self):
         return self
+
+    @classmethod
+    def _init_sample(cls):
+        """initializes tweets_sample class variable with tweets from data
+        we do it here on first instance creation to avoid side effects on sphinx documentation creation
+        """
+        if cls.tweets_sample is None:
+            with gzip.open(_PATH_TO_DATA + "tweets_sample_10000.json.gz", 'rb') as fin:
+                cls.tweets_sample = simplejson.load(fin)
+            for i in range(0, len(cls.tweets_sample)):
+                cls.tweets_sample[i]['_aux'] = {'SeqGlobal': i}
+                cls.tweets_sample = [simplejson.dumps(doc) for doc in cls.tweets_sample]
+                cls.tweets_sample_len = len(cls.tweets_sample)
 
     @classmethod
     def report(cls):
@@ -197,7 +204,7 @@ def stream_filter():
 
 
 @route('/1.1/statuses/firehose.json', method=['GET'])
-def stream_firehose(): 
+def stream_firehose():
     return stream(request, response)
 
 
@@ -215,9 +222,10 @@ def error_http():
 
 
 def simple_stream_appl(environ, start_response):
-    """simple pure gevent WSGIServer stream server """
-    # kind of test to see if it's more efficient than bottle over WSGIServer
-    # TL;DR results show just a small marginal improvement
+    """simple pure gevent WSGIServer stream server
+    kind of test to see if it's more efficient than bottle over bjoern
+    TL;DR results show just a marginal improvement
+    """
     status = '200 OK'
     headers = [
         ('Content-Type', 'application/json')
@@ -240,7 +248,7 @@ def parse_args():
     parser.add_argument("-delay",   default=0, type=float,
                         help='delay in seconds between data i.e:0.001, defaults to 0')
     parser.add_argument("-errors_every", default=0, type=int,
-                        help='simulate possible errors inject errors every 0=never')
+                        help='simulate possible errors inject errors every N tweets 0=never')
     parser.add_argument("-debug",   default=False, action="store_true",
                         help='debug (engages bottle catchall')
     parser.add_argument("-report",  default=1, type=int, help='report every N seconds')

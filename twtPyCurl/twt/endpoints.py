@@ -1,16 +1,15 @@
-'''
-Created on Oct 28, 2014
-
-@author: milon
+'''classes to construct twitter end points
 '''
 
 import simplejson
 from twtPyCurl import _PATH_TO_DATA
-from twtPyCurl.constants import TWT_URL_HELP_STREAM, TWT_URL_HELP_REST, TWT_URL_HELP_REST_REF
-from Hellas.Sparta import DotDot, AdHocTree
+from twtPyCurl.twt.constants import TWT_URL_HELP_STREAM, TWT_URL_HELP_REST, TWT_URL_HELP_REST_REF
+from twtPyCurl.py.utilities import DotDot, AdHocTree
 
 
 class EndPoints(object):
+    '''Base class for end points
+    '''
     _end_points = None
     _msg_wrong_ep = "no such end point, select one of the following:"
     delimiter = "/"
@@ -22,11 +21,11 @@ class EndPoints(object):
             self._eps_from_txt_file(path_to_txt_file)
 
     def __getattr__(self, attr):
-        """ delegate to attrs object
-        """
+        """delegate  __getattr__  method to _attrs object"""
         return self._attrs.__getattr__(attr)
 
     def __getitem__(self, path):
+        """delegate  __getitem__  method to _attrs object"""
         return self._attrs.__getitem__(path)
 
     @classmethod
@@ -58,19 +57,21 @@ class EndPoints(object):
 
     @classmethod
     def _help(cls, path=None, msg="HELP:", verbose=True):
-        """ Args:path can be a string, list, or dictionary
-                 see get_value method
-        """
-        dic = path if isinstance(path, dict) else cls.get_value(path)
+        '''see get_value method'''
+        dict_or_str = path if isinstance(path, dict) else cls.get_value(path)
         print (msg)
-        print (simplejson.dumps(dic if verbose else dic.keys(), sort_keys=True,
-                                indent=4, separators=(',', ': '), namedtuple_as_object=False))
-        return dic
+        if isinstance(dict_or_str, dict):
+            print (simplejson.dumps(dict_or_str if verbose else dict_or_str.keys(), sort_keys=True,
+                                    indent=4, separators=(',', ': '), namedtuple_as_object=False))
+        else:
+            print (dict_or_str)
+        return dict_or_str
 
     @classmethod
     def get_value(cls, path_or_list=None):
-        """ path_or_list can be a path of the form: '/users/search' or just 'users'
-            or a list: ['users','search']
+        """gets value of end_point path
+
+        :param path_or_list path_or_list: a path i.e '/users/search' or just 'users' or a list: ['users','search']
         """
         if path_or_list is None:
             path_or_list = []
@@ -95,7 +96,9 @@ class EndPoints(object):
 
 
 class EndPointsRest(EndPoints):
+    """Twitter Rest Api End Points"""
     _end_points = None
+    msg_frmt = "{}{}"
 
     def __init__(self, parent=None):
         if EndPointsRest._end_points is None:
@@ -106,12 +109,13 @@ class EndPointsRest(EndPoints):
     def _help(cls, path_or_list_or_dict=None, msg="", verbose=False):
         rt = super(EndPointsRest, cls)._help(path_or_list_or_dict, verbose=verbose)
         msg = "{} \nsee at: ".format(msg)
-        if rt.get('method') is None:
-            msg = "{}{}".format(msg, TWT_URL_HELP_REST.format("public"))
-        else:
-            path = rt.path.replace("/id", "/:id") if rt.path.endswith("/id") else rt.path
-            msg = "{}{}".format(msg, TWT_URL_HELP_REST_REF.format(rt.method.lower(), path))
-        print (msg)
+        if isinstance(rt, dict):
+            if rt.get('method') is None:
+                msg = cls.msg_frmt.format(msg, TWT_URL_HELP_REST.format("public"))
+            else:
+                path = rt.path.replace("/id", "/:id") if rt.path.endswith("/id") else rt.path
+                msg = cls.msg_frmt.format(msg, TWT_URL_HELP_REST_REF.format(rt.method.lower(), path))
+            print (msg)
         return(rt, msg)
 
     def _adHocCmd_(self, element, *args, **kwargs):

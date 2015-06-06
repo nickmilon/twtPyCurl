@@ -1,5 +1,5 @@
 __version__ = '0.1.1'
-__author__ = "nickmilon"
+__author__ = 'nickmilon'
 
 
 from os import path

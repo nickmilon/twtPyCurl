@@ -1,30 +1,30 @@
+# -*- coding: UTF-8 -*-
+
 '''
-Created on Feb 24, 2013
-@author: nickmilon
 see: https://docs.python.org/2/distutils/setupscript.html
 '''
+import re
+import os
 from setuptools import setup, find_packages
-version = '0.1.1'
 
-# work around since dependency_links seems don't work with newer versions of pip,
-# needs to uninstall it manually on uninstall
-import pip
-pip.main(['install', "git+https://github.com/nickmilon/Hellas.git@master"])
-# @TODO remove above when we upload Hellas to PyPi
+cur_path = os.path.dirname(os.path.realpath(__file__))
+read_init = open(cur_path+'/twtPyCurl/__init__.py').read()
 
-# print('installing packages:{!s}'.format(find_packages()))
+__version__ = re.search("__version__\s*=\s*'(.*)'", read_init, re.M).group(1)
+__author__ = re.search("__author__\s*=\s*'(.*)'", read_init, re.M).group(1)
 
+assert __version__ is not None and __author__ is not None 
 setup(
     packages=find_packages(),
     package_data={'twtPyCurl': ['../twt_data/*.*']},
 
     name="twtPyCurl",
-    version=version,
-    author="nickmilon",
+    version=__version__,
+    author=__author__,
     author_email="nickmilon/gmail/com",
     maintainer="nickmilon",
     url="https://github.com/nickmilon/twtPyCurl",
-    description="python utilities",
+    description="A pycurl interface to Twitter’s rest and streaming API’s",
     long_description="see: readme",
     download_url="https://github.com/nickmilon/twtPyCurl",
     classifiers=[
@@ -46,7 +46,6 @@ setup(
     install_requires=[
         'oauthlib',
         'simplejson',
-        'pycurl',
-        'Hellas'
+        'pycurl'
     ],
 )
