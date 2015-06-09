@@ -31,6 +31,10 @@ class ErrorRq(Exception):
         return '<{}>'.format(self.__class__.__name__)
 
 
+class ErrorRqMissingKeys(ErrorRq):
+    pass
+
+
 class ErrorRqCredentialsNotValid(ErrorRq):
     pass
 
@@ -87,13 +91,16 @@ class CredentialsProvider(object):
         if 'id_user' in lsr_cr_keys:  # it is user credentials
             rt.extend([i for i in self.user_keys if i not in lsr_cr_keys])
         if rt:
-            raise ("missing keys: {}".format(",".join(rt)))
+            raise ErrorRqMissingKeys({'msg': "missing keys: {}".format(",".join(rt))})
         return credentials_dict
 
 
 class CredentialsProviderFile(CredentialsProvider):
     """simple file based credentials provider reads credentials from the contents of a json file
-    see a sample of the contents on twt_data/sample_credentials.json
+
+    .. seealso::
+        - a sample file with user credentials at: twt_data/sample_credentials_user.json
+        - a sample file with application credentials at: twt_data/sample_credentials_application.json
     """
     def __call__(self, *args, **kwargs):
         rt = self.get_credentials(*args, **kwargs)
@@ -102,15 +109,16 @@ class CredentialsProviderFile(CredentialsProvider):
     @classmethod
     def get_credentials(cls, file_path=None):
         """
-        :param str file_path: full path name to a file defaults to credentials.json in user's home directory
+        :param str file_path: full path name to a file, defaults to credentials.json in user's home directory
         :returns: a validated credentials dictionary
+        :raises: IOError on file error
         """
         if file_path is None:  # defaults to credentials.json in home directory
             file_path = "{}/credentials.json".format(path.expanduser("~"))
         with open(file_path, "r") as fin:
             try:
                 crd_dict = simplejson.load(fin)
-            except IOError as e:
+            except IOError:
                 raise
         return cls.validate(crd_dict)
 
@@ -123,7 +131,7 @@ class Credentials(object):
         self.id_user = kwargs.get('id_user')                    # defaults to None (application credentials)
         self.user_name = kwargs.get('user_name', self.id_user)  # defaults to id_user
         self.id_appl = kwargs.id_appl                           # required
-        if len(list(kwargs.keys())) > 2:
+        if len(list(kwargs.keys())) > 1:
             if self.id_user is None:
                 self._is_appl = True
                 self.OAuth = OAuth2(**kwargs)
@@ -574,7 +582,7 @@ class ClientStream(Client):
     :param int stats_every: report statistics every n data packets (specify 0 to suppress stats)
     :param dict kwargs: any other argument(s) as specified in :class:`Client`
     """
-    format_stream_stats = "|{name:4s}|{DHMS:12s}|{chunks:15,d}|{data:14,d}|{avg_per_sec:12,.2f}|"
+    format_stream_stats = "|{name:8s}|{DHMS:12s}|{chunks:15,d}|{data:14,d}|{avg_per_sec:12,.2f}|"
     format_stream_stats_header = format_header(format_stream_stats)
     # format strings for printing statistics
 

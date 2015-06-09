@@ -1,4 +1,8 @@
 '''
+to test the client run:
+python -m nm_py_stream.client server_url 100
+where 100 is a parameter to print statistics every 100 documents received, can be any integer or (0 to suppress statistics) 
+where server_url = any compliant stream server url 
 '''
 # see http://stackoverflow.com/questions/25347176/scaling-bjoern-to-multiple-servers
 
@@ -6,7 +10,7 @@ from twtPyCurl import _IS_PY3
 
 
 if _IS_PY3:
-        print ("this module is not compatible with python versions >= 3")
+        print ("this module is not compatible with python versions 3X")
         exit()
 try:
     from gevent import monkey

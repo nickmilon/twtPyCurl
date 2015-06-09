@@ -40,21 +40,24 @@ class ErrorTwtMissingParameters(ErrorRq):
 
 class ErrorRqHttpTwt(ErrorRq):
     def __init__(self, response):
+        """ i.e:
+        {'errors': [{'message': 'Query parameters are missing.', 'code': 25}]}
+        {'errors': [{'message': 'Invalid or expired token.', 'code': 89}]}
+        """
         if "errors" in list(response.data.keys()):
-            """ i.e:{'errors': [{'message': 'Query parameters are missing.', 'code': 25}]} """
-            rt = {'status': response.status, 'msg': response.data['errors'][0]['message'],
+            rt = {'status': response.status_http, 'msg': response.data['errors'][0]['message'],
                   'code': response.data['errors'][0]['code']}
         else:
-            rt = {'status': response.status}
+            rt = {'status': response.status_http}
         super(ErrorRqHttpTwt, self).__init__(rt)
 
 
 class ClientTwtRest(Client):
     """client for Twitter `REST <https://dev.twitter.com/rest/public>`_ API
-     examples require a credentials.json in user's home directory see :class:`.py.requests.CredentialsProviderFile`
+     examples require a credentials.json in user's home directory see :class:`~.CredentialsProviderFile`
 
-    :param Credentials credentials: an instance of :class:`.py.requests.Credentials`
-    :param dict kwargs: see :class:`.py.requests.Client` and :class:`.py.requests.ClientStream`
+    :param Credentials credentials: an instance of :class:`~.Credentials`
+    :param dict kwargs: for acceptable kwargs see :class:`~.Client`
 
     :example:
         :ref:`check here <example-rest>`
@@ -66,7 +69,24 @@ class ClientTwtRest(Client):
         super(ClientTwtRest, self).__init__(credentials=credentials, **kwargs)
         self.api = self._endpoints
 
+    def request_ep(self, end_point, method='GET', parms={}, multipart=False):
+        """request end point
+
+        :param str end_point: twitter REST end point sortcut ie 'users/search'
+        :param str method: request method one of GET or POST (defaults to GET)
+        :param dict parms: parameters dictionary to pass to twitter
+
+        :return: an instance of :class:`~.Response`
+
+         .. Warning:: doesn't check end_point's validity will raise a twitter API error if not valid
+
+        """
+        return self.request(TWT_URL_API_REST.format(end_point), method, parms, multipart)
+
     def on_request_error_http(self, err):
+        """we got an http error, if error < 500
+        twitter's error message is in data i.e: {'errors': [{'message': 'Invalid or expired token.', 'code': 89}]}
+        """
         if err < 500:
             self.response.data = simplejson.loads(self.response.data)
             raise ErrorRqHttpTwt(self.response)
@@ -86,7 +106,10 @@ class ClientTwtRest(Client):
             method='POST', parms={'media': (pycurl.FORM_FILE, file_or_path)}, multipart=True)
 
     def _adHocCmd_(self, element, *args, **kwargs):
-        # print "args", args,"kwargs", kwargs
+        """this makes the trick of issuing requests against endpoints using dot notation syntax
+        it is provided only for ease of use when issuing requests from command line.
+        Applications should not use dot notation but instead call :func:`request_ep` method
+        """
         dic_keys = str(element).split(self._endpoints.delimiter)[1:]  # Note get rid of root
         rt = self._endpoints.get_value_validate(dic_keys)
         if rt:
@@ -94,27 +117,32 @@ class ClientTwtRest(Client):
             if rt.path.endswith("/id"):
                 if not args:
                     raise ErrorTwtMissingParameters('id')
-                url = TWT_URL_API_REST.format(rt.path.replace("id", str(args[0])))
+                endpoint = rt.path.replace("id", str(args[0]))
             else:
-                url = TWT_URL_API_REST.format(rt.path)
-            return self.request(url, rt.method, parms=kwargs)
+                endpoint = rt.path
+            return self.request_ep(endpoint, rt.method, kwargs)
         else:
             return False
 
 
 class ClientTwtStream(ClientStream):
-    '''*A client for twitter stream API*
-       disconnect can be initiated by a message to disconnect from twitter
-       or by the program by setting request_abort property to a tuple (code,message)
-    '''
-    # some strings for formating statistics
+    """*A client for twitter stream API*
+    disconnect can be initiated by a message to disconnect from twitter
+    or by the program by setting request_abort property to a tuple (code,message)
+
+    :param Credentials credentials: an instance of :class:`~.Credentials`
+    :param int stats_every: print statististics every n data packets defaults to 0 (disables statics)
+    :param dict kwargs: for acceptable kwargs see :class:`~.Client` and :class:`~.ClientStream`
+
+    :example:
+        :ref:`check here <example-stream>`
+    """
+    # some strings for formating statistics #############################################
     format_stream_stats = ClientStream.format_stream_stats + "{t_data:14,d}|{t_msgs:8,d}|"
     format_stream_stats_header = format_header(format_stream_stats)
     # ####################################################################################
 
-    def __init__(self, credentials=None,
-                 stats_every=1000,  # 0 or None to disable stats
-                 **kwargs):
+    def __init__(self, credentials=None, stats_every=0, **kwargs):
         self._reset_retry()
         self._endpoints = EndPointsStream(parent=self)  # class composition with endpoints object
         # delegate to endpoints could be done automatically but that would be too hackish
@@ -122,16 +150,15 @@ class ClientTwtStream(ClientStream):
         self.sitestream = self._endpoints.sitestream
         self.userstream = self._endpoints.userstream
         self.name = kwargs.get('name')  # ancestor class will set it again but we need it now
-        super(ClientTwtStream, self).__init__(credentials, stats_every=stats_every, **kwargs)
+        super(ClientTwtStream, self).__init__(credentials=credentials, stats_every=stats_every, **kwargs)
         self.counters.update({'t_data': 0, 't_msgs': 0})
 
     def on_request_error_curl(self, err):
-        '''default error handling, for curl (connection) Errors override method for any special handling
-        see error codes http://curl.haxx.se/libcurl/c/libcurl-errors.html
-        #(E_COULDNT_CONNECT= 7)
+        """default error handling, for curl (connection) Errors override method for any special handling
+        `see curl error codes <http://curl.haxx.se/libcurl/c/libcurl-errors.html>`_
         return True to retry request
         raise an exception or return False to abort
-        '''
+        """
         if err[0] == pycurl.E_PARTIAL_FILE and self._state.retries_curl < 4:
             # err  (18, 'transfer closed with outstanding read data remaining')
             # usually happens in streams due to network/server temporary failure
@@ -177,7 +204,7 @@ class ClientTwtStream(ClientStream):
 
     @classmethod
     def wait_seconds(cls, try_cnt, initial, maximum, tries_max=5, exponential=False):
-        '''see https://dev.twitter.com/streaming/overview/connecting
+        '''see: https://dev.twitter.com/streaming/overview/connecting
 
         :Args:
             - try_cnt successive retries count starting with 0
@@ -208,18 +235,9 @@ class ClientTwtStream(ClientStream):
         return cls.wait_seconds(current_try, 60, 600)
 
     def on_data_default(self, data):
-        '''this is where actual stream data comes after chunks are merged,
+        """this is where actual stream data comes after chunks are merged,
         if we don't specify an on_data_cb function on class initialization
-        '''
-#         try:
-#             jdata = simplejson.loads(data)
-#         except simplejson.scanner.JSONDecodeError as e:
-#             # we can get here if response status was not 200
-#             # or a misformed json (never happened)
-#             # we don't raise Exception since probably it will raised at end of request
-#             self.response.data = data
-#             log.warning("json error={:s} body date={:s}".format(e, data))
-#             print (e, "data="+data)
+        """
         jdata = simplejson.loads(data)
         if self._last_req.subdomain == 'stream':  # it is a statuses stream
             if jdata.get('source') is not None:   # it is a status (all statuses have source key sometimes can be '')
@@ -233,17 +251,18 @@ class ClientTwtStream(ClientStream):
         # print(jdata.get('text', jdata))
 
     def on_twitter_data(self, data):
-        '''this is where actual twitter data comes unless you specify on_twitter_data_cb on
-        class initialization
-        '''
+        """this is where actual twitter data comes unless you specify on_twitter_data_cb on
+        class initialization, override in descendants or provide a on_twitter_data_cb
+        """
+        # example:
         # self.response.data = data
-        # store last VALID data in any case (helpfull in Error recovery)
+        # store last VALID data in any case (helpful in Error recovery)
         # for example by checking id or date
         # print data['text']
 
     def on_twitter_msg_base(self, msg):
         '''twitter messages come here first so we can handle some cases here
-        `see error codes here <https://dev.twitter.com/streaming/overview/messages-types>`__
+        `see message types and error codes here <https://dev.twitter.com/streaming/overview/messages-types>`_
         '''
         msg_type = list(msg.keys())[0]
         self.on_twitter_msg(msg_type, msg)
@@ -255,24 +274,23 @@ class ClientTwtStream(ClientStream):
         '''
         print (msg)
 
-    def reqstrm(self, end_point, method, test_server, **kwargs):
-        '''shortcut to request constructs url from end_point
+    def request_ep(self, end_point, method, test_server=False, **kwargs):
+        """shortcut to request constructs url from end_point
 
-        .. Warning:: doesn't check if end_point is a valid end_point
+        :param str end_point: twitter REST end point sortcut ie 'stream/statuses/filter'
+        :param str method: request method one of GET or POST (defaults to GET)
+        :param bool test_server: if True channels request request to test server
+        :param dict kwargs: parameters dictionary to pass to twitter
 
-        :Args:
-            - end_point:(str) twitter stream end point i.e.: "subdomain/type/subtype"
-            - method: (str) 'GET' or 'POST'
-            - test_server (boolean) if True sends request to test server
-            - kwars: request parameters to send to twitter API
+        :return: an instance of :class:`~.Response`
 
-        :Usage:
-
-        >>> client.reqstrm("stream/statuses/filter","POST", track="breaking, news")
-
-        :Returns: response object
         :Raises:  see request method
-        '''
+        :Usage:
+            >>> client.request_ep("stream/statuses/filter","POST", track="breaking, news")
+
+         .. Warning:: doesn't check end_point's validity will raise a twitter API error if not valid
+
+        """
         ep_lst = end_point.split("/")
         url = TWT_URL_API_STREAM.format(ep_lst[0], "/".join(ep_lst[1:]))
         if test_server:
@@ -281,24 +299,33 @@ class ClientTwtStream(ClientStream):
         return self.request(url, method, kwargs)
 
     def help(self, *args, **kwargs):
-        '''delegate help to endpoints'''
+        """delegate help to endpoints
+
+        :Usage:
+            >>> h = client.help("userstream/user")
+            see at: ( https://dev.twitter.com/streaming/overview ) ...
+        """
         return self._endpoints._help(*args, **kwargs)
 
     def _adHocCmd_(self, element, *args, **kwargs):
+        """this makes the trick of issuing requests against endpoints using dot notation syntax
+        it is provided only for ease of use when issuing requests from command line.
+        Applications should not use dot notation but instead call :func:`request_ep` method
+        """
         dic_keys = str(element).split(self._endpoints.delimiter)[1:]  # get rid of root
         if dic_keys[-1] == 'test':
             test_server = True
             dic_keys = dic_keys[:-1]
             if dic_keys[-1] == 'error':
                 # simulate error testing
-                return self.reqstrm('/'.join(dic_keys), 'GET', test_server, **kwargs)
+                return self.request_ep('/'.join(dic_keys), 'GET', test_server, **kwargs)
             else:
                 rt = self._endpoints.get_value_validate(dic_keys)
         else:
             test_server = False
             rt = self._endpoints.get_value_validate(dic_keys)
         if rt:
-            return self.reqstrm(rt.path, rt.method, test_server, **kwargs)
+            return self.request_ep(rt.path, rt.method, test_server, **kwargs)
         else:
             raise Exception("no such end point")
 
