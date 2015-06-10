@@ -3,11 +3,8 @@ module clients
 """
 
 from twtPyCurl.py.utilities import DotDot, FMT_DT_GENERIC
-# file_to_base64
 from twtPyCurl.twt.constants import TWT_URL_MEDIA_UPLOAD, TWT_URL_API_REST, TWT_URL_API_STREAM
-
-
-from twtPyCurl.py.requests import (simplejson, pycurl, Client, ClientStream, CredentialsProviderFile,
+from twtPyCurl.py.requests import (simplejson, pycurl, Client, ClientStream,
                                    ErrorRq, ErrorRqCurl, ErrorRqHttp, format_header)
 from time import sleep
 from twtPyCurl.twt.endpoints import EndPointsRest, EndPointsStream
@@ -19,7 +16,7 @@ logging.basicConfig(
     datefmt=FMT_DT_GENERIC)
 
 log = logging.getLogger(__name__)
-log.info("loading module")
+log.info("loading module:clients" )
 
 
 def backoff(seconds):  # default backoff method
@@ -81,7 +78,32 @@ class ClientTwtRest(Client):
          .. Warning:: doesn't check end_point's validity will raise a twitter API error if not valid
 
         """
-        return self.request(TWT_URL_API_REST.format(end_point), method, parms, multipart)
+        frmt_str = TWT_URL_MEDIA_UPLOAD if end_point == "media/upload" else TWT_URL_API_REST
+        if end_point == "statuses/update":
+            parms = self._request_ep_media(parms)  # check for media
+
+        return self.request(frmt_str.format(end_point), method, parms, multipart)
+
+    def _request_ep_media(self, parms_dict):
+        """this is a special case `see <https://dev.twitter.com/rest/reference/post/media/upload>`_
+        a post request with media(binary file(s) content or media_data (base64 encoded content)
+        upload content and modify parameters with media_ids
+        """
+        media_parm_key = [i for i in ['media', 'media_data'] if i in list(parms_dict.keys())]
+        if media_parm_key:
+            media_parm_key = media_parm_key[0]
+            print "media_parm_key", media_parm_key
+            media = parms_dict[media_parm_key]
+            del parms_dict[media_parm_key]
+            if not isinstance(media, (list, tuple)):  # make it a list
+                media = [media]
+            media_ids = []
+            for m in media:
+                print "uploading", m[0:100]
+                rt = self.request_ep("media/upload", "POST", parms={media_parm_key: m}, multipart=True)
+                media_ids.append(rt.data['media_id_string'])
+            parms_dict['media_ids'] = ",".join(media_ids)
+        return parms_dict
 
     def on_request_error_http(self, err):
         """we got an http error, if error < 500
@@ -100,6 +122,8 @@ class ClientTwtRest(Client):
         '''delegate help to be handled by endpoints object'''
         return self._endpoints._help(*args, **kwargs)
 
+
+        
     def _twtUploadMP(self, file_or_path):
         return self.request(
             TWT_URL_MEDIA_UPLOAD,

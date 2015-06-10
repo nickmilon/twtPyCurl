@@ -1,12 +1,17 @@
-'''
+"""
 to test the client run:
-python -m nm_py_stream.client server_url 100
+hosts: 127.0.0.1 stream.twitter.com
+
 where 100 is a parameter to print statistics every 100 documents received, can be any integer or (0 to suppress statistics) 
-where server_url = any compliant stream server url 
-'''
+where server_url = any compliant stream server url
+installation:
+    sudo apt-get install libev-dev required by bjoern # https://github.com/jonashaag/bjoern/wiki/Installation
+    pip install gevent bottle bjoern
+"""
 # see http://stackoverflow.com/questions/25347176/scaling-bjoern-to-multiple-servers
 
 from twtPyCurl import _IS_PY3
+from lib2to3.fixer_util import Dot
 
 
 if _IS_PY3:
@@ -16,8 +21,9 @@ try:
     from gevent import monkey
     monkey.patch_all()                   # needed by Bottle for stream server
     from bottle import route, request, response, app
+    import bjoern
 except ImportError:
-    print ("this module requires gevent & bottle install those:>>> pip install gevent bottle")
+    print ("this module requires gevent & bottle install those:>>> pip install gevent bottle bjoern")
     exit()
 
 from datetime import datetime
@@ -29,8 +35,7 @@ from random import randint
 from gevent.pywsgi import WSGIServer
 from gevent import sleep, Greenlet, pool, joinall
 from twtPyCurl import _PATH_TO_DATA
-from Hellas.Sparta import seconds_to_DHMS
-
+from twtPyCurl.py.utilities import DotDot, seconds_to_DHMS, format_header 
 
 GL_STREAM_DELAY = 0       # Default stream delay between data (seconds)
 GL_REPORT_EVERY = 1
@@ -49,10 +54,12 @@ MSG_DISCONNECT = {
 
 class TweetsSampler():
     tweets_sample = None
-    format_stats = "|{:3d}|{}|{:14,d}|{:10,d}|{:10,.1f}|{}|"
+    format_stats = "|{client:6d}|{DHMS:12s}|{total_cnt:14,d}|{current_cnt:14,d}|{avg_per_sec:12,.2f}|{inst:4}|"
+    format_stats_header = format_header(format_stats)
     instances = weakref.WeakSet()
     cls_dt_start = datetime.utcnow()
     cls_clients = 0
+    stats_idle = DotDot({'client': -1, 'total_cnt': -1, 'current_cnt': -1, 'avg_per_sec': -1})
 
     def __init__(self, max_n=None):
         self._init_sample()
@@ -63,33 +70,35 @@ class TweetsSampler():
         self.cnt_last = 0
         self.dt_start = datetime.utcnow()
         self.instances.add(self)
-
+        self.stats = DotDot({'client': self.cl_number, 'inst': '**'})
+         
     def __iter__(self):
         return self
 
     @classmethod
     def _init_sample(cls):
         """initializes tweets_sample class variable with tweets from data
-        we do it here on first instance creation to avoid side effects on sphinx documentation creation
+        we do it here on first instance creation to avoid side effects on sphinx documentation
         """
         if cls.tweets_sample is None:
             with gzip.open(_PATH_TO_DATA + "tweets_sample_10000.json.gz", 'rb') as fin:
                 cls.tweets_sample = simplejson.load(fin)
             for i in range(0, len(cls.tweets_sample)):
                 cls.tweets_sample[i]['_aux'] = {'SeqGlobal': i}
-                cls.tweets_sample = [simplejson.dumps(doc) for doc in cls.tweets_sample]
-                cls.tweets_sample_len = len(cls.tweets_sample)
+            cls.tweets_sample = [simplejson.dumps(doc) for doc in cls.tweets_sample]
+            cls.tweets_sample_len = len(cls.tweets_sample)
 
     @classmethod
     def report(cls):
+        print cls.format_stats_header
         while True:
             dt_now = datetime.utcnow()
             tmp = (dt_now - cls.cls_dt_start).total_seconds()
             num_of_instances = len(cls.instances)
             if num_of_instances == 0:
-                print cls.format_stats.format(
-                    -1, seconds_to_DHMS(tmp),
-                    -1, -1, -1, "%2d" % (num_of_instances))
+                cls.stats_idle.DHMS = seconds_to_DHMS(tmp)
+                cls.stats_idle.inst =str("%2d" % (num_of_instances))
+                print cls.format_stats.format(**cls.stats_idle)
             else:
                 for inst in list(cls.instances):
                     inst.report_stats()
@@ -104,13 +113,15 @@ class TweetsSampler():
         raise StopIteration()
 
     def report_stats(self):
+        #format_stats = "|{client:6s}|{DHMS:12s}|{total_cnt:15,d}|{current_cnt:14,d}|{avg_per_sec:12,.2f}|"
         if self.cnt > 0:
             dt_now = datetime.utcnow()
             tmp = (dt_now - self.dt_start).total_seconds()
-            avg_docs_per_sec = (self.cnt / tmp)
-            print self.format_stats.format(
-                self.cl_number, seconds_to_DHMS(tmp),
-                self.cnt, self.cnt-self.cnt_last, avg_docs_per_sec, '**')
+            self.stats.DHMS = seconds_to_DHMS(tmp)
+            self.stats.avg_per_sec =  self.cnt / tmp
+            self.stats.total_cnt = self.cnt
+            self.stats.current_cnt = self.cnt-self.cnt_last
+            print self.format_stats.format(**self.stats)
             self.cnt_last = self.cnt
 
     def yield_tweets(self, max_n=None):

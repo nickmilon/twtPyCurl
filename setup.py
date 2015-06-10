@@ -22,7 +22,7 @@ setup(
     version=__version__,
     author=__author__,
     author_email="nickmilon/gmail/com",
-    maintainer="nickmilon",
+    maintainer="@nickmilon",
     url="https://github.com/nickmilon/twtPyCurl",
     description="A pycurl interface to Twitter’s rest and streaming API’s",
     long_description="see: readme",

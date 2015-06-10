@@ -430,8 +430,7 @@ class Client(object):
     def on_progress_change(self, download_t, download_d, upload_t, upload_d):
         """called by :func:`on_progress` if it senses a change in progress (to avoid endless progress reports)"""
         upload_perc = (upload_d / upload_t) * 100 if upload_d != 0 else 0
-        # no risk of div/0 (upload_t can't be 0 if upload_d !=0)
-        download_perc = (download_d / download_t) * 100 if download_d != 0 else 0
+        download_perc = (download_d / download_t) * 100 if download_t != 0 and upload_d != 0 else 0
         if upload_perc + download_perc:
             print (self.format_progress.format(download_perc, upload_perc))
         return None

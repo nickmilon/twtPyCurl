@@ -6,8 +6,9 @@ A `pycurl <http://pycurl.sourceforge.net/doc/index.html>`__ interface to Twitter
 :Description:
    Yet an other python driver for Twitter's `REST <https://dev.twitter.com/rest/public>`_ 
    and `Streaming <https://dev.twitter.com/streaming/overview>`_  APIs based on `pycurl <http://pycurl.sourceforge.net/doc/index.html>`_ 
-   Package also includes a high throughtput test server that partialy emulates functionality of Twitter APIs. 
-   So why one more python driver ?
+   Package also includes a high throughtput test server that partialy emulates functionality of Twitter APIs.
+   
+   So why one more python driver
       - All available drivers are based on python's 'requests' library, this one is based on pyCurl.
       - Python requests tend to be rather slow compared to pyCurl, more so on high volume streaming.
       - This library can possibly be extended to use pyCurl build in multithreading capabilities. 
@@ -71,6 +72,19 @@ A `pycurl <http://pycurl.sourceforge.net/doc/index.html>`__ interface to Twitter
    {'id': 781570238, 'notifications': False .... }                                     # print user's info
    >>> response.headers                                                                # get response headers
    'x-rate-limit-reset': '1433548949', 'x-rate-limit-remaining': '179' ....            # notice the rate limits info returned by Twitter
+   >>> with open( "/home/..../Downloads/del1.jpg", 'rb') as fin: f1bin=fin.read()      # read a jpg picture
+   >>> with open( "/home/..../Downloads/del2.jpg", 'rb') as fin: f2bin=fin.read()      # read a jpg picture
+   >>> response = clr.request_ep("statuses/update", "POST",                            # post a tweeet with two pictures attached
+                                 parms={'media':[f1bin, f2bin],                        #
+                                 'status': 'see those two new pictures'})              #
+   >>> response.data                                                                   # data from response 
+   {'contributors': None, 'truncated': False, 'text': 'see those two new pictures...}  # tweet's details
+   >>> from base64 import b64encode                                                    # import b64 encoder
+   >>> f1b64 = b64encode(f1bin)                                                        # encode binary file to base64
+   >>> response = clr.request_ep("statuses/update",                                    # post a tweeet with a picture
+                                 "POST", parms={'media-data':[f1b64],                  # notice **media-data** instead of **media**
+                                 'status': 'see this pic'})                            # when sending b64 encoded files
+   >>> response = clr.api.statuses.update(media_data=f1b64, status='new pic')          # same thing using dot notation
    >>> def prn_data(data): print(data)                                                 # define an on_data_cb function
    >>> clr = ClientTwtRest(credentials, on_data_cb=prn_data)                           # create create a REST client instance with an on_data call back
    >>> response=clr.api.followers.list(screen_name="nickmilon", count=2)               # get 2 followers
@@ -99,7 +113,7 @@ A `pycurl <http://pycurl.sourceforge.net/doc/index.html>`__ interface to Twitter
    |STR1|000-00:00:19|            573|       300|       15.63|           300|       0|
    |STR1|000-00:00:25|            776|       400|       15.89|           400|       0|
    |STR1|000-00:00:31|            951|       500|       15.87|           500|       0|
-   {'limit': {'track': 1}}                                                             # Message from twitter = we missed 1 tweet coz we exceeded API limis
+   {'limit': {'track': 1}}                                                             # Message from twitter: we missed 1 tweet coz we exceeded API limis
    |STR1|000-00:00:38|          1,152|       600|       15.45|           599|       1|  
    
   
