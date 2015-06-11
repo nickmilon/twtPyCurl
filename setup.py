@@ -32,7 +32,7 @@ setup(
     url="https://github.com/nickmilon/twtPyCurl",
     description="A pycurl interface to Twitter’s rest and streaming API’s",
     long_description=readme_content,
-    download_url="https://github.com/nickmilon/twtPyCurl",
+    download_url="https://github.com/nickmilon/twtPyCurl/tarball/master",
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
