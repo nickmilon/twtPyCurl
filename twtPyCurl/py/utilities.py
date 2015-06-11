@@ -168,6 +168,18 @@ def seconds_to_DHMS(seconds, as_string=True):
     return FMT_DHMS_DICT.format(**d) if as_string else d
 
 
+def dict_encode(in_dict):
+    out_dict = {}
+    for k, v in in_dict.iteritems():
+        if isinstance(v, unicode):
+            v = v.encode('utf8')
+        elif isinstance(v, str):
+            # Must be encoded in UTF-8
+            v.decode('utf8')
+        out_dict[k] = v
+    return out_dict
+ 
+
 def dict_copy(a_dict, exclude_keys_lst=[], exclude_values_lst=[]):
     """a **sallow** copy of a dict excluding items in exclude_keys_lst and exclude_values_lst
     useful for copying locals etc...

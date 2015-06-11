@@ -12,8 +12,8 @@ import pycurl
 import urllib
 import urlparse
 from datetime import datetime
-from twtPyCurl.__init__ import __version__, path
-from twtPyCurl.py.utilities import (dict_copy, DotDot, seconds_to_DHMS, format_header)
+from twtPyCurl.__init__ import __version__, path, _IS_PY2
+from twtPyCurl.py.utilities import (dict_copy, dict_encode, DotDot, seconds_to_DHMS, format_header)
 from twtPyCurl.py.oauth import OAuth1, OAuth2
 
 
@@ -229,9 +229,9 @@ class Client(object):
     :param tuple request: (url, method, parms) if specified request will be executed following instance creation
            see :func:`request`
     :param Credentials credentials: an instance of :class:`Credentials`
-    :param function on_data_cb: a call back with a single parameter to execute when data from request are ready, 
+    :param function on_data_cb: a call back with a single parameter to execute when data from request are ready,
            if missing or None instance's :func:`on_data_default` will be called instead
-    :param str user_agent: a user agent string to use in request header (defaults to class name + 'v '+ __version) 
+    :param str user_agent: a user agent string to use in request header (defaults to class name + 'v '+ __version)
     :param str name: name for this instance if missing a default based on instance's id is provided see: :func:`name`
     :param bool allow_retries: if True allows instance to perform retries to recover from an error if possible (defaults to True)
     :param bool allow_redirects: if True allows automatic redirects (defaults to False)
@@ -459,6 +459,21 @@ class Client(object):
         raise ErrorRqHttp(err, self.response.status_http)
 
     def request(self, url, method, parms={}, multipart=False):
+        """
+         .. Warning:: currently we don't url-encode the url, clients should encode it if needed before call
+                      response object reurned is hot i.e a reference to client.response so it will be invalid
+                      after next request. Clients should copy it if they intend to reuse it in future.
+
+        :param str url: requests' url
+        :param str method: request
+        :param dict kwargs: parameters dictionary to pass to twitter
+
+        :return: an instance of :class:`~.Response`
+
+        :Raises:  proper HTTP or pyCurl errors
+        """
+        if _IS_PY2:
+            parms = dict_encode(parms)
         self.on_request_start()
         self._state.retries_curl = 0
         self._state.retries_http = 0

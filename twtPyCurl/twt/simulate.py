@@ -4,6 +4,7 @@ hosts: 127.0.0.1 stream.twitter.com
 
 where 100 is a parameter to print statistics every 100 documents received, can be any integer or (0 to suppress statistics) 
 where server_url = any compliant stream server url
+
 installation:
     sudo apt-get install libev-dev required by bjoern # https://github.com/jonashaag/bjoern/wiki/Installation
     pip install gevent bottle bjoern

@@ -80,6 +80,7 @@ class ClientTwtRest(Client):
         """
         frmt_str = TWT_URL_MEDIA_UPLOAD if end_point == "media/upload" else TWT_URL_API_REST
         if end_point == "statuses/update":
+            #parms['status'] = parms['status'].encode('utf-8')
             parms = self._request_ep_media(parms)  # check for media
 
         return self.request(frmt_str.format(end_point), method, parms, multipart)
@@ -88,6 +89,7 @@ class ClientTwtRest(Client):
         """this is a special case `see <https://dev.twitter.com/rest/reference/post/media/upload>`_
         a post request with media(binary file(s) content or media_data (base64 encoded content)
         upload content and modify parameters with media_ids
+        there is a faster but complicated `endpoint <https://dev.twitter.com/rest/reference/post/media/upload-chunked>`_
         """
         media_parm_key = [i for i in ['media', 'media_data'] if i in list(parms_dict.keys())]
         if media_parm_key:
