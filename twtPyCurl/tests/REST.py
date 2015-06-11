@@ -45,6 +45,12 @@ class Test(unittest.TestCase):
         self.assertEqual(1, 1, "msg")
 
     def test_rest_quick(self):
+        """a quick REST API test,
+        checks:
+            - ability Read Write Delete tweets/retweets
+            - read write latency
+            - basic http Errors
+        """
         clr = ClientTwtRest(self.credentials)
 
         #    check invalid end point
@@ -53,8 +59,8 @@ class Test(unittest.TestCase):
         r = self.exreq(clr.api.search.tweets(q="Ελλάδα OR Россия", result_type='recent', count=1))
         # non Latin -check encodings
         status_search = r.data['statuses'][0]
-        self.assertEqual(r.data['search_metadata']['count'], 1, "didn't find any tweet")
- 
+        self.assertEqual(r.data['search_metadata']['count'], 1, "didn't find any tweets")
+
         #    Retweet
         r = self.exreq(self.exreq(clr.api.statuses.retweet.id(status_search['id']), delay=1))
         status_rt = r.data

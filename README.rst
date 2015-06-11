@@ -1,14 +1,14 @@
 
-'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
-A `pycurl <http://pycurl.sourceforge.net/doc/index.html>`__ interface to Twitter's rest and streaming API's
-'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+A pycurl  interface to Twitter's rest and streaming API's
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''
 
 :Description:
    Yet an other python driver for Twitter's `REST <https://dev.twitter.com/rest/public>`_ 
    and `Streaming <https://dev.twitter.com/streaming/overview>`_  APIs based on `pycurl <http://pycurl.sourceforge.net/doc/index.html>`_ 
    Package also includes a high throughtput test server that partialy emulates functionality of Twitter APIs.
    
-   So why one more python driver
+   So why one more python driver ?
       - All available drivers are based on python's 'requests' library, this one is based on pyCurl.
       - Python requests tend to be rather slow compared to pyCurl, more so on high volume streaming.
       - This library can possibly be extended to use pyCurl build in multithreading capabilities. 
