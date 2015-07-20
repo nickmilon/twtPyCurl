@@ -1,12 +1,12 @@
 """
 some useful utilities used in multiple places
-:author: nickmilon
 """
 from copy import copy
 import re
 
 FMT_DT_GENERIC = "%y%m%d %H:%M:%S"                                    # generic date time format
 FMT_DHMS_DICT = "{days:03d}-{hours:02d}:{minutes:02d}:{seconds:02d}"  # format for printing out timedelta objects
+from twtPyCurl import _IS_PY2
 
 
 def format_header(frmt):
@@ -153,7 +153,7 @@ def seconds_to_DHMS(seconds, as_string=True):
 
     :param int seconds: number of seconds
     :param bool as_string: to return a formated string defaults to True
-    :returns: a formated string if as string else a dictionary
+    :returns: a formated string if as_string else a dictionary
     :Example:
         >>> seconds_to_DHMS(60*60*24)
         001-00:00:00
@@ -169,16 +169,20 @@ def seconds_to_DHMS(seconds, as_string=True):
 
 
 def dict_encode(in_dict):
-    out_dict = {}
-    for k, v in in_dict.iteritems():
-        if isinstance(v, unicode):
-            v = v.encode('utf8')
-        elif isinstance(v, str):
-            # Must be encoded in UTF-8
-            v.decode('utf8')
-        out_dict[k] = v
-    return out_dict
- 
+    """returns a new dictionary with encoded values useful for encoding http queries (python < 3)"""
+    if _IS_PY2:
+        out_dict = {}
+        for k, v in list(in_dict.items()):
+            if isinstance(v, unicode):
+                v = v.encode('utf8')
+            elif isinstance(v, str):
+                # Must be encoded in UTF-8
+                v.decode('utf8')
+            out_dict[k] = v
+        return out_dict
+    else:
+        raise NotImplementedError
+
 
 def dict_copy(a_dict, exclude_keys_lst=[], exclude_values_lst=[]):
     """a **sallow** copy of a dict excluding items in exclude_keys_lst and exclude_values_lst

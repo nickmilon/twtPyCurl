@@ -1,8 +1,5 @@
 # -*- coding: UTF-8 -*-
 
-'''
-see: https://docs.python.org/2/distutils/setupscript.html
-'''
 import re
 import os
 from setuptools import setup, find_packages
@@ -17,7 +14,6 @@ readme_content = ""
 with open("README.rst") as f:
     for line in range(0, 4):  # just a few lines coz pypi does not fully  support ResT
         readme_content += f.readline()
-
 
 assert __version__ is not None and __author__ is not None
 setup(

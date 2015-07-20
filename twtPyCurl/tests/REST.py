@@ -5,17 +5,18 @@ Created on July 20, 2015
 @author: milon
 '''
 import unittest
-from copy import copy
 from twtPyCurl.twt.clients import ClientTwtRest, ErrorRqHttpTwt
 from twtPyCurl.py.requests import Credentials, CredentialsProviderFile, ErrorRqMissingKeys
 from datetime import datetime
 from time import sleep
+
+
 class Test(unittest.TestCase):
 
     def setUp(self):
         self.credentials = None
         try:
-            self.credentials = Credentials(**CredentialsProviderFile()()) 
+            self.credentials = Credentials(**CredentialsProviderFile()())
         except (IOError, ErrorRqMissingKeys):
             pass
 
@@ -23,7 +24,7 @@ class Test(unittest.TestCase):
         pass
 
     def exreq(self, func, check=True, delay=0):
-        """ execute a request and optionally check results
+        """execute a request and optionally check results
         delay write operations to simulate a human or to give time to twitter to process
         """
         res = func
@@ -39,14 +40,10 @@ class Test(unittest.TestCase):
     def test_01_credentials(self):
         self.assertIsNotNone(self.credentials, "no credentials file 'credentials.json' or credentials not valid")
 
-    def test_02(self):
-        # self.assertEqual(1, 2, "1 NE 2")
-
-        self.assertEqual(1, 1, "msg")
-
     def test_rest_quick(self):
         """a quick REST API test,
-        checks:
+
+        :checks:
             - ability Read Write Delete tweets/retweets
             - read write latency
             - basic http Errors
@@ -62,7 +59,8 @@ class Test(unittest.TestCase):
         self.assertEqual(r.data['search_metadata']['count'], 1, "didn't find any tweets")
 
         #    Retweet
-        r = self.exreq(self.exreq(clr.api.statuses.retweet.id(status_search['id']), delay=1))
+        # r = self.exreq(self.exreq(clr.api.statuses.retweet.id(status_search['id']), delay=1))
+        r = self.exreq(clr.api.statuses.retweet.id(status_search['id']), delay=1)
         status_rt = r.data
         #    Post a tweet
         utc_posted = datetime.utcnow()
@@ -74,23 +72,37 @@ class Test(unittest.TestCase):
         r = self.exreq(clr.api.statuses.show.id(status_posted['id']))
         self.assertLess((datetime.utcnow()-utc_posted).total_seconds(), 5, "post-retrieve latency > 5 seconds")
         self.assertEqual(status_posted['id'], r.data['id'], 'can not retrieve posted_status')
-        #    check timeline to see if we get posted tweet
-        r = self.exreq(clr.api.statuses.user_timeline(since_id=status_posted['id'] - 1)) 
+        #    check timeline to see if we receive posted tweet
+        r = self.exreq(clr.api.statuses.user_timeline(since_id=status_posted['id'] - 1))
         self.assertGreater(len(r.data), 0, "can't get any statuses in recent timeline")
 
-
-
-        #    delete posted  and retwitted tweets
+        #    delete posted  and retweeied tweets
         r = self.exreq(clr.api.statuses.destroy.id(status_posted['id']), delay=1)
         self.assertEqual(status_posted['id'], r.data['id'], 'did not delete posted status')
         r = self.exreq(clr.api.statuses.destroy.id(status_rt['id']), delay=1)
 
-        
-        
-        
-        
-        
-        
+    def test_direct_message(self):
+        def check_dms(since_id):
+            for t in range(0, 5):
+                dms = clr.api.direct_messages(since_id=since_id - 1)
+                if since_id in [i['id'] for i in dms.data]:
+                    return True  # we found it
+                sleep(1)
+            return False
+        clr = ClientTwtRest(self.credentials)
+        r = clr.api.search.tweets(q="news", result_type='recent', count=1)  # get a tweet (so we can use its text)
+        status_search = r.data['statuses'][0]
+        self.assertEqual(r.data['search_metadata']['count'], 1, "didn't find any tweets")
+        r = clr.api.account.settings()  # get authenticated users info
+        utc_posted = datetime.utcnow()
+        dm = clr.api.direct_messages.new(screen_name=r.data['screen_name'], text=status_search['text'][:140])
+        dm_id = dm.data['id']
+        found = check_dms(dm_id)
+        self.assertTrue(found, "can't retrieve posted direct message")
+        if found:
+            latency_secs = (datetime.utcnow()-utc_posted).total_seconds()
+            print ("DM retrieve latency seconds ={:f}".format(latency_secs))
+            self.assertLess(latency_secs, 5, "DM retrieve latency > 5 seconds")
+            clr.api.direct_messages.destroy(id=dm_id)
 if __name__ == "__main__":
-    # import sys;sys.argv = ['', 'Test.testName']
     unittest.main()

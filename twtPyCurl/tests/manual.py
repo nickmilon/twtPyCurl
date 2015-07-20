@@ -4,7 +4,7 @@ some manual benchmarking tests
 import argparse
 from twtPyCurl.py.requests import (Credentials, CredentialsProviderFile)
 from twtPyCurl.twt.clients import (ClientTwtRest, ClientTwtStream)
-
+import simplejson
 
 def test_rest():
     tmp_credentials = Credentials(**CredentialsProviderFile()())
@@ -17,7 +17,9 @@ def test_rest():
 
 def stream_simulate():
     def on_data(data):
-        pass
+        return
+        jdata = simplejson.loads(data)
+        print jdata.get('text') 
     tmp_credentials = Credentials(**CredentialsProviderFile()())
     cls = ClientTwtStream(credentials=tmp_credentials, stats_every=10000, name="tst1", verbose=0, on_data_cb=on_data) 
     resp = cls.stream.statuses.filter.test(track="foo")

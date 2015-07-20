@@ -1,9 +1,9 @@
 """
-to test the client run:
-hosts: 127.0.0.1 stream.twitter.com
+to test the client  
+write an entry in your /etc/hosts file
+127.0.0.1 stream.twitter.com
+run python -m twtPyCurl.twt.simulate
 
-where 100 is a parameter to print statistics every 100 documents received, can be any integer or (0 to suppress statistics) 
-where server_url = any compliant stream server url
 
 installation:
     sudo apt-get install libev-dev required by bjoern # https://github.com/jonashaag/bjoern/wiki/Installation
@@ -12,8 +12,6 @@ installation:
 # see http://stackoverflow.com/questions/25347176/scaling-bjoern-to-multiple-servers
 
 from twtPyCurl import _IS_PY3
-from lib2to3.fixer_util import Dot
-
 
 if _IS_PY3:
         print ("this module is not compatible with python versions 3X")
@@ -36,7 +34,7 @@ from random import randint
 from gevent.pywsgi import WSGIServer
 from gevent import sleep, Greenlet, pool, joinall
 from twtPyCurl import _PATH_TO_DATA
-from twtPyCurl.py.utilities import DotDot, seconds_to_DHMS, format_header 
+from twtPyCurl.py.utilities import DotDot, seconds_to_DHMS, format_header
 
 GL_STREAM_DELAY = 0       # Default stream delay between data (seconds)
 GL_REPORT_EVERY = 1
@@ -72,7 +70,7 @@ class TweetsSampler():
         self.dt_start = datetime.utcnow()
         self.instances.add(self)
         self.stats = DotDot({'client': self.cl_number, 'inst': '**'})
-         
+
     def __iter__(self):
         return self
 
@@ -184,7 +182,7 @@ class ServerClient(object):
 CLIENTS = Clients()
 
 
-def stream(request, responce):
+def stream(request, response):
     response.content_type = 'application/json'
     response.status = '200 OK'
     tweets_sample = TweetsSampler()
@@ -236,6 +234,11 @@ def error_http():
         response.status = int(request.query.get("err_code", 200))
         return simplejson.dumps({'http_error': response.status}) + DATA_SEPARATOR
 
+@route('/')
+def catch_all():
+    print ("catch_all")
+    return "catch_all"
+
 
 def simple_stream_appl(environ, start_response):
     """simple pure gevent WSGIServer stream server
@@ -272,24 +275,24 @@ def parse_args():
 
 
 def main():
-        args = parse_args()
-        print "starting server", vars(args)
-        global GL_STREAM_DELAY
-        global GL_REPORT_EVERY
-        global GL_ERRORS_EVERY
-        GL_STREAM_DELAY = args.delay
-        GL_REPORT_EVERY = args.report
-        GL_ERRORS_EVERY = args.errors_every
-        if args.server == 'WSGIServer':
-            server = WSGIServer((args.host, args.port), simple_stream_appl, spawn=pool.Pool(100))
-            server = Greenlet.spawn(server.serve_forever)
-        else:
-            appl = app()
-            if args.debug:
-                appl.catchall = False
-            server = Greenlet.spawn(appl.run, host=args.host, port=args.port, server=args.server)
-        report = Greenlet.spawn(TweetsSampler.report)
-        joinall([report, server])
+    args = parse_args()
+    print "starting server", vars(args)
+    global GL_STREAM_DELAY
+    global GL_REPORT_EVERY
+    global GL_ERRORS_EVERY
+    GL_STREAM_DELAY = args.delay
+    GL_REPORT_EVERY = args.report
+    GL_ERRORS_EVERY = args.errors_every
+    if args.server == 'WSGIServer':
+        server = WSGIServer((args.host, args.port), simple_stream_appl, spawn=pool.Pool(100))
+        server = Greenlet.spawn(server.serve_forever)
+    else:
+        appl = app()
+        if args.debug:
+            appl.catchall = False
+        server = Greenlet.spawn(appl.run, host=args.host, port=args.port, server=args.server)
+    report = Greenlet.spawn(TweetsSampler.report)
+    joinall([report, server])
 
 if __name__ == "__main__":
     main()

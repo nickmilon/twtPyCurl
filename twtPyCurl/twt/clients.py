@@ -16,7 +16,7 @@ logging.basicConfig(
     datefmt=FMT_DT_GENERIC)
 
 log = logging.getLogger(__name__)
-log.info("loading module:clients" )
+log.info("loading module:clients")
 
 
 def backoff(seconds):  # default backoff method
@@ -80,7 +80,7 @@ class ClientTwtRest(Client):
         """
         frmt_str = TWT_URL_MEDIA_UPLOAD if end_point == "media/upload" else TWT_URL_API_REST
         if end_point == "statuses/update":
-            #parms['status'] = parms['status'].encode('utf-8')
+            # parms['status'] = parms['status'].encode('utf-8')
             parms = self._request_ep_media(parms)  # check for media
 
         return self.request(frmt_str.format(end_point), method, parms, multipart)
@@ -121,11 +121,9 @@ class ClientTwtRest(Client):
         self.response.data = simplejson.loads(self.response.data)
 
     def help(self, *args, **kwargs):
-        '''delegate help to be handled by endpoints object'''
+        """delegate help to be handled by endpoints object"""
         return self._endpoints._help(*args, **kwargs)
 
-
-        
     def _twtUploadMP(self, file_or_path):
         return self.request(
             TWT_URL_MEDIA_UPLOAD,
@@ -213,10 +211,10 @@ class ClientTwtStream(ClientStream):
         raise ErrorRqCurl(err[0], err[1])
 
     def on_request_error_http(self, err):
-        '''default error handling, for HTTP Errors override method for any special handling
+        """default error handling, for HTTP Errors override method for any special handling
         return True to retry request
         raise an exception or return False to abort
-        '''
+        """
         if err in [500, 502, 503, 504] and self._state.retries_http < 4:
             if self.wait_on_http_error(self._state.retries_http):
                 self._log_retry("http", err, "", self._state.retries_http)
@@ -305,7 +303,7 @@ class ClientTwtStream(ClientStream):
 
         :param str end_point: twitter REST end point sortcut ie 'stream/statuses/filter'
         :param str method: request method one of GET or POST (defaults to GET)
-        :param bool test_server: if True channels request request to test server
+        :param bool test_server: if True channels request to test server
         :param dict kwargs: parameters dictionary to pass to twitter
 
         :return: an instance of :class:`~.Response`
@@ -357,4 +355,3 @@ class ClientTwtStream(ClientStream):
 
     def _reset_retry(self):
         self._retry_counters = DotDot({'retries': 0, 'bo_err_420': 60, 'bo_err_http': 5})
-

@@ -6,7 +6,7 @@ A pycurl  interface to Twitter's rest and streaming API's
 :Description:
    Yet an other python driver for Twitter's `REST <https://dev.twitter.com/rest/public>`_ 
    and `Streaming <https://dev.twitter.com/streaming/overview>`_  APIs based on `pycurl <http://pycurl.sourceforge.net/doc/index.html>`_ 
-   Package also includes a high throughtput test server that partialy emulates functionality of Twitter APIs.
+   Package also includes a high throughput test server that partially emulates functionality of Twitter APIs.
    
    So why one more python driver ?
       - All available drivers are based on python's 'requests' library, this one is based on pyCurl.
@@ -15,7 +15,7 @@ A pycurl  interface to Twitter's rest and streaming API's
       - `detailed documentation <http://miloncdn.appspot.com/docs/twtPyCurl/index.html>`_
       - `github repository <https://github.com/nickmilon/twtPyCurl>`_
 
----------------
+____
 
 :Dependencies:
    - `simplejson <https://simplejson.readthedocs.org/en/latest/>`_ (automatically installed by setup) it is preffered over core python json becouse of speed gains 
@@ -26,7 +26,7 @@ A pycurl  interface to Twitter's rest and streaming API's
    - `gevent <ttp://python-gevent.appspot.com/>`_  (optional used only by simulate server)
    - `bottle <http://bottlepy.org/docs/dev/index.html>`_  (optional used only by simulate server)
   
----------------
+____
 
 :Installation: 
    - (tested on Debian and Ubuntu) but should work with minor adaptations on install procedure on all current linux distributions).
@@ -37,6 +37,7 @@ A pycurl  interface to Twitter's rest and streaming API's
      | or from pypi ``pip install twtPyCurl``
      | Install gevent (optional) ``pip install gevent``
 
+____
 
 .. Note::
    - Primary design factors for this library are reliability and speed.
@@ -47,8 +48,9 @@ A pycurl  interface to Twitter's rest and streaming API's
      This functionality is provided by the library for ease of use when issuing requests from command line.
      Derived applications should not use dot notation but instead call :func:`request_ep` method 
    
+____
 
-:usage rest:
+:Usage rest:
    .. _example-rest:
    
    >>> from twtPyCurl.twt.clients import ClientTwtRest                                 # import Client
@@ -90,8 +92,9 @@ A pycurl  interface to Twitter's rest and streaming API's
    >>> response=clr.api.followers.list(screen_name="nickmilon", count=2)               # get 2 followers
    {"users":[{"id":3162852272,"id_str":"3162852272","name":"DevWorld", ....]}          # prints data as defined in call back
 
-   
-:usage Stream:
+ ____
+  
+:Usage Stream:
    .. _example-stream:
  
    >>> from twtPyCurl.twt.clients import ClientTwtStream                               # import Client
@@ -116,9 +119,13 @@ A pycurl  interface to Twitter's rest and streaming API's
    {'limit': {'track': 1}}                                                             # Message from twitter: we missed 1 tweet coz we exceeded API limis
    |STR1|000-00:00:38|          1,152|       600|       15.45|           599|       1|  
    
-  
-   
+____
+
+:Tests:
+   - to run tests
+      ``python -m python -m twtPyCurl.tests.REST -v``
+ 
 
 .. Note::
-  - for any bugs/suggestions feel free to issue a ticket in github's issues
+  - for any bugs/suggestions feel free to issue a ticket in `github's issues <https://github.com/nickmilon/twtPyCurl/issues>`_
   - the example in client assumes that server sends a  "\r\n" data separator which you can override in descendant classes 

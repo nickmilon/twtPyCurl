@@ -12,7 +12,7 @@ import pycurl
 import urllib
 import urlparse
 from datetime import datetime
-from twtPyCurl.__init__ import __version__, path, _IS_PY2
+from twtPyCurl import __version__, path, _IS_PY2
 from twtPyCurl.py.utilities import (dict_copy, dict_encode, DotDot, seconds_to_DHMS, format_header)
 from twtPyCurl.py.oauth import OAuth1, OAuth2
 
@@ -332,13 +332,13 @@ class Client(object):
             self.handle.setopt(pycurl.DEBUGFUNCTION, self.handle_on_debug)
 
     def handle_set(self, url, method, request_parms, multipart=False):  # relevant only for POST
-        '''
+        """
         :param str url: url to be used by request
         :param str method: method to be used by request
         :param dict request_parms: request's parameters
         :param boolean multipart: defaults to False, specify True for a multipart request
         :raises: KeyError: if method is not one of GET POST or HEAD
-        '''
+        """
         self._last_req.parms = (url, method, request_parms, multipart)
         if self.handle is None:
             self._handle_init()
@@ -444,10 +444,10 @@ class Client(object):
         pass
 
     def on_request_error_curl(self, err):
-        '''default error handling, for curl (connection) Errors override method for any special handling
+        """default error handling, for curl (connection) Errors override method for any special handling
         `see libcurl error codes <http://curl.haxx.se/libcurl/c/libcurl-errors.html>`_
         return True to auto retry request, raise an exception or return False to abort
-        '''
+        """
         if err[0] == pycurl.E_WRITE_ERROR and self._request_abort[0] is not None:  # 23
             return False    # normal termination requested by us
         raise ErrorRqCurl(err[0], err[1])
