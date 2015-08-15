@@ -1,5 +1,5 @@
 """
-to test the client  
+to test the client
 write an entry in your /etc/hosts file
 127.0.0.1 stream.twitter.com
 run python -m twtPyCurl.twt.simulate

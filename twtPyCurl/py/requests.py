@@ -11,24 +11,19 @@ import simplejson
 import pycurl
 import urllib
 import urlparse
+import logging
 from datetime import datetime
-from twtPyCurl import __version__, path, _IS_PY2
-from twtPyCurl.py.utilities import (dict_copy, dict_encode, DotDot, seconds_to_DHMS, format_header)
+from twtPyCurl import __version__, path
+from twtPyCurl.py.utilities import (dict_encode, DotDot, seconds_to_DHMS, format_header)
 from twtPyCurl.py.oauth import OAuth1, OAuth2
+
+LOG = logging.getLogger(__name__)
+# LOG.addHandler(logging.NullHandler())
+LOG.debug("loading module: " + __name__)
 
 
 class ErrorRq(Exception):
     """Exceptions base"""
-    def __init__(self, arg_dict={}):
-        self._args = dict_copy(arg_dict, ['self'])
-        # except self so descendants can just sent locals()
-        # copy so can safely meddle with it, but remember it is NOT a deep copy
-
-    def __str__(self):
-        return str({self.__class__.__name__: self._args})
-
-    def __repr__(self):
-        return '<{}>'.format(self.__class__.__name__)
 
 
 class ErrorRqMissingKeys(ErrorRq):
@@ -42,25 +37,13 @@ class ErrorRqCredentialsNotValid(ErrorRq):
 class ErrorRqHttp(ErrorRq):
     """HTTP error"""
     def __init__(self, http_code, msg=''):
-        super(ErrorRqHttp, self).__init__(locals())
-
-
-class ErrorUknownParamer(ErrorRq):
-    """ Unknown  Parameter exception"""
-    def __init__(self, cls, parameters_lst):
-        msg = "unknown parameter(s)[%s] in %s" % (" ".join(parameters_lst), cls.__class__.__name__)
-        super(ErrorUknownParamer, self).__init__({'msg': msg})
-
-
-class ErrorRqStream(ErrorRq):
-    def __init__(self, err_number, msg):
-        super(ErrorRqStream, self).__init__(locals())
+        super(ErrorRqHttp, self).__init__(http_code, msg)
 
 
 class ErrorRqCurl(ErrorRq):
     """Exceptions raised by Curl"""
     def __init__(self, err_number, msg):
-        super(ErrorRqCurl, self).__init__(locals())
+        super(ErrorRqCurl, self).__init__(err_number, msg)
 
 
 class CredentialsProvider(object):
@@ -91,7 +74,7 @@ class CredentialsProvider(object):
         if 'id_user' in lsr_cr_keys:  # it is user credentials
             rt.extend([i for i in self.user_keys if i not in lsr_cr_keys])
         if rt:
-            raise ErrorRqMissingKeys({'msg': "missing keys: {}".format(",".join(rt))})
+            raise ErrorRqMissingKeys("missing keys: {}".format(",".join(rt)))
         return credentials_dict
 
 
@@ -325,13 +308,32 @@ class Client(object):
         self.handle.setopt(pycurl.NOPROGRESS, 0 if self.verbose else 1)
         # self.handle.setopt(pycurl.NOSIGNAL, 1)
         # self.handle.setopt(pycurl.CONNECTTIMEOUT, 10)
-        # self.handle.setopt(pycurl.TIMEOUT, 15) defaults to 300 ?
+        # self.handle.setopt(pycurl.TIMEOUT, 50)  # defaults to 300 ?
         self.curl_verbose = 1 if self.verbose > 0 else 0
         self.curl_noprogress = 1 if self.verbose < 1 else 0     # defaults to Not verbose
         if self.verbose == 2:
             self.handle.setopt(pycurl.DEBUGFUNCTION, self.handle_on_debug)
+        self._handle_init_end()
 
-    def handle_set(self, url, method, request_parms, multipart=False):  # relevant only for POST
+    def _handle_init_end(self):
+        """modify in descedants if additional initialization requirements"""
+
+    def _raise(self, err_class, *args):
+        """use this mechanism to raise critical exceptions
+        useful to notify applications before raising the exception and maybe try a remedy in application level
+        especially useful in a threading environment to notify main thread before raising
+        it calls _on_exception and raises the exception only if it returns True
+        """
+        LOG.exception("exception {:s}{:s}".format(err_class, args))
+        if self._on_exception(err_class, *args):
+            raise err_class(*args)
+
+    def _on_exception(self, err_class, *args):
+        """descendants can specify any special handling
+        """
+        return True
+
+    def handle_set(self, url, method, request_parms, multipart=False):  # multipart relevant only for POST
         """
         :param str url: url to be used by request
         :param str method: method to be used by request
@@ -344,7 +346,7 @@ class Client(object):
             self._handle_init()
         headers = [i for i in self.request_headers]  # @Note add copy of standard headers
         if self.credentials is not None:
-                # allthough not needed if authorization type is application
+                # although not needed if authorization type is application
                 # set it any way, so credentials can be reseted on the fly
                 self._last_req.url_parsed = urlparse.urlparse(url)
                 self._last_req.subdomain = self._last_req.url_parsed.netloc.split('.')[0]
@@ -377,7 +379,9 @@ class Client(object):
         if self.handle is not None:
             self.handle.setopt(option, value)
             self._curl_options[option] = value
-            return True
+            return value
+        else:
+            raise ErrorRq({'msg': 'pycurl handle has not been set'})
 
     def curl_get_option(self, option):
         return self._curl_options.get(option)
@@ -392,11 +396,26 @@ class Client(object):
 
     @property
     def curl_verbose(self):
-        return self._curl_options.verbose
+        return self._curl_options[pycurl.VERBOSE]
 
     @curl_verbose.setter
     def curl_verbose(self, zero_or_one):
         self.curl_set_option(pycurl.VERBOSE, zero_or_one)
+
+    @property
+    def curl_low_speed(self):
+        return (self._curl_options[pycurl.LOW_SPEED_LIMIT], self._curl_options[pycurl.LOW_SPEED_TIME])
+
+    @curl_low_speed.setter
+    def curl_low_speed(self, speed_time_tuple):
+        """sets low speed parameters raises curl Error pycurl.E_OPERATION_TIMEDOUT (28) if limits exceeded
+        useful for discovering network connection breaks
+        `see libcurl <http://curl.haxx.se/libcurl/c/CURLOPT_LOW_SPEED_TIME.html>`_
+        :Parameters:
+            - speed_time_tuple (tuple) (limit bytes, seconds)
+        """
+        self.curl_set_option(pycurl.LOW_SPEED_LIMIT, speed_time_tuple[0])
+        self.curl_set_option(pycurl.LOW_SPEED_TIME, speed_time_tuple[1])
 
     @property
     def request_abort(self):
@@ -461,7 +480,7 @@ class Client(object):
     def request(self, url, method, parms={}, multipart=False):
         """
          .. Warning:: currently we don't url-encode the url, clients should encode it if needed before call
-                      response object reurned is hot i.e a reference to client.response so it will be invalid
+                      response object returned is hot i.e a reference to client.response will be invalid
                       after next request. Clients should copy it if they intend to reuse it in future.
 
         :param str url: requests' url
@@ -472,8 +491,7 @@ class Client(object):
 
         :Raises:  proper HTTP or pyCurl errors
         """
-        if _IS_PY2:
-            parms = dict_encode(parms)
+        parms = dict_encode(parms)
         self.on_request_start()
         self._state.retries_curl = 0
         self._state.retries_http = 0
@@ -493,6 +511,7 @@ class Client(object):
             except pycurl.error as err:
                 self.response.err_curl = err
                 retry = self.on_request_error_curl(err) if self.allow_retries else False
+                # LOG.info("retry _SBOU =" + str(retry))
             finally:
                 self.response.status_http = self.handle.getinfo(pycurl.HTTP_CODE)
                 if self.response.status_http > 299:
@@ -544,6 +563,7 @@ class Client(object):
         if len(self.response.headers_raw) == 1:
             if self.response.status_provisional is not None:
                 self._state.retries_curl = 0                # successful connection
+                self._state.retries_extra = 0               # extra counter provision to be used by descendants
                 if self.response.status_provisional < 300:
                     self._state.retries_http = 0            # successful http status
         return self._request_abort[0]                       # disconnect if an abort
@@ -564,14 +584,13 @@ class Client(object):
         raise NotImplementedError
 
     def handle_on_debug(self, msg_type, msg_str):
-        """pyCurl's handle on debug call back
-        """
+        """pyCurl's handle on debug call back"""
         if msg_type == pycurl.INFOTYPE_TEXT:
             pass
         elif msg_type == pycurl.INFOTYPE_HEADER_IN:
-            print("Header From Peer: %r" % msg_str)
+            LOG.debug("Header From Peer: %r" % msg_str)
         elif msg_type == pycurl.INFOTYPE_HEADER_OUT:
-            print("Header Sent to Peer: %r" % msg_str)
+            LOG.debug("Header Sent to Peer: %r" % msg_str)
         elif msg_type == pycurl.INFOTYPE_DATA_IN:
             pass
         elif msg_type == pycurl.INFOTYPE_DATA_OUT:
@@ -617,6 +636,7 @@ class ClientStream(Client):
         '''data call back receives chunks of data from server and
         this must return None or number of bytes received else connection terminates
         '''
+        # LOG.debug("counters.chunks= {:d} chunk [{:s}]".format(self.counters.chunks, data_chunk))
         # @Note:this piece of code is super critical for speed, since it is the main loop executed all the time
         #       data comes in.
         #       currently it uses string concatenation to amend data

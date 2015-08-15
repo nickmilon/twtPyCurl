@@ -92,8 +92,7 @@ ____
    >>> response=clr.api.followers.list(screen_name="nickmilon", count=2)               # get 2 followers
    {"users":[{"id":3162852272,"id_str":"3162852272","name":"DevWorld", ....]}          # prints data as defined in call back
 
- ____
-  
+ 
 :Usage Stream:
    .. _example-stream:
  
