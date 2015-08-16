@@ -479,9 +479,10 @@ class Client(object):
 
     def request(self, url, method, parms={}, multipart=False):
         """
-         .. Warning:: currently we don't url-encode the url, clients should encode it if needed before call
-                      response object returned is hot i.e a reference to client.response will be invalid
-                      after next request. Clients should copy it if they intend to reuse it in future.
+         .. Warning:: 
+            - Currently we don't url-encode the url, clients should encode it if needed before making a call.
+            - Response object returned is hot i.e a reference to client.response will be invalid
+              after next request. Clients should copy it if they intend to reuse it in future.
 
         :param str url: requests' url
         :param str method: request

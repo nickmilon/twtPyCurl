@@ -6,6 +6,7 @@ from twtPyCurl.py.requests import (Credentials, CredentialsProviderFile)
 from twtPyCurl.twt.clients import (ClientTwtRest, ClientTwtStream)
 import simplejson
 
+
 def test_rest():
     tmp_credentials = Credentials(**CredentialsProviderFile()())
     clr = ClientTwtRest(credentials=tmp_credentials, allow_retries=False, name="test_r", verbose=2)
